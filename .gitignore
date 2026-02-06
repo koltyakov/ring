@@ -1,0 +1,26 @@
+# Backend
+backend/chatapp
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+backend/static/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
