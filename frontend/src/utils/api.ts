@@ -1,13 +1,13 @@
-const API_URL = '' // Uses proxy in dev, same origin in prod
+const API_URL = ''; // Uses proxy in dev, same origin in prod
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
-    super(message)
+    super(message);
   }
 }
 
 async function fetchWithAuth(path: string, options: RequestInit = {}, skipAuthRedirect = false) {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('token');
   
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -16,18 +16,18 @@ async function fetchWithAuth(path: string, options: RequestInit = {}, skipAuthRe
       ...(token && { 'Authorization': `Bearer ${token}` }),
       ...options.headers,
     },
-  })
+  });
 
   if (!response.ok) {
-    let errorMessage = `HTTP ${response.status}`
+    let errorMessage = `HTTP ${response.status}`;
     try {
-      const contentType = response.headers.get('content-type')
+      const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
-        const error = await response.json()
-        errorMessage = error.error || errorMessage
+        const error = await response.json();
+        errorMessage = error.error || errorMessage;
       } else {
-        const text = await response.text()
-        errorMessage = text.substring(0, 200) || errorMessage
+        const text = await response.text();
+        errorMessage = text.substring(0, 200) || errorMessage;
       }
     } catch {
       // parsing failed, use default
@@ -35,13 +35,13 @@ async function fetchWithAuth(path: string, options: RequestInit = {}, skipAuthRe
     // Only redirect on 401 if we had a token (i.e., session expired)
     // Don't redirect for login failures
     if (response.status === 401 && token && !skipAuthRedirect) {
-      localStorage.removeItem('token')
-      window.location.reload()
+      localStorage.removeItem('token');
+      window.location.reload();
     }
-    throw new ApiError(response.status, errorMessage)
+    throw new ApiError(response.status, errorMessage);
   }
 
-  return response.json()
+  return response.json();
 }
 
 export interface User {
@@ -112,6 +112,6 @@ export const api = {
     fetchWithAuth('/api/invites', {
       method: 'POST',
     }),
-}
+};
 
-export default api
+export default api;

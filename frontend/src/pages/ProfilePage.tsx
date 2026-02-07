@@ -1,30 +1,30 @@
-import { useState } from 'react'
-import { useAuthStore } from '../stores/authStore'
+import { useState } from 'react';
+import { useAuthStore } from '../stores/authStore';
 
 export default function ProfilePage() {
-  const { user, logout, createInvite } = useAuthStore()
-  const [inviteCode, setInviteCode] = useState<string | null>(null)
-  const [isCreating, setIsCreating] = useState(false)
+  const { user, logout, createInvite } = useAuthStore();
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
   const handleCreateInvite = async () => {
-    setIsCreating(true)
+    setIsCreating(true);
     try {
-      const code = await createInvite()
-      setInviteCode(code)
+      const code = await createInvite();
+      setInviteCode(code);
     } catch (error) {
-      console.error('Failed to create invite:', error)
+      console.error('Failed to create invite:', error);
     } finally {
-      setIsCreating(false)
+      setIsCreating(false);
     }
-  }
+  };
 
   const copyToClipboard = () => {
     if (inviteCode) {
-      navigator.clipboard.writeText(inviteCode)
+      navigator.clipboard.writeText(inviteCode);
     }
-  }
+  };
 
-  if (!user) return null
+  if (!user) return null;
 
   return (
     <div className="flex-1 flex flex-col p-4">
@@ -80,5 +80,5 @@ export default function ProfilePage() {
         Sign Out
       </button>
     </div>
-  )
+  );
 }

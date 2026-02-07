@@ -1,50 +1,50 @@
-import { useEffect, useRef } from 'react'
-import { format } from 'date-fns'
-import { useMessagesStore } from '../stores/messagesStore'
-import { useUsersStore } from '../stores/usersStore'
+import { useEffect, useRef } from 'react';
+import { format } from 'date-fns';
+import { useMessagesStore } from '../stores/messagesStore';
+import { useUsersStore } from '../stores/usersStore';
 
 interface MessageListProps {
   userId: number
 }
 
 export default function MessageList({ userId }: MessageListProps) {
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const messages = useMessagesStore(state => state.getMessagesForUser(userId))
-  const isLoading = useMessagesStore(state => state.isLoading)
-  const fetchMessages = useMessagesStore(state => state.fetchMessages)
-  const typing = useMessagesStore(state => state.typingUsers.get(userId))
-  useUsersStore(state => state.getUserById(userId)) // prefetch user data
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messages = useMessagesStore(state => state.getMessagesForUser(userId));
+  const isLoading = useMessagesStore(state => state.isLoading);
+  const fetchMessages = useMessagesStore(state => state.fetchMessages);
+  const typing = useMessagesStore(state => state.typingUsers.get(userId));
+  useUsersStore(state => state.getUserById(userId)); // prefetch user data
 
   useEffect(() => {
-    fetchMessages(userId)
-  }, [userId, fetchMessages])
+    fetchMessages(userId);
+  }, [userId, fetchMessages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, typing])
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, typing]);
 
-  const token = localStorage.getItem('token')
-  const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0
+  const token = localStorage.getItem('token');
+  const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
 
   if (isLoading && messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
       </div>
-    )
+    );
   }
 
   // Group messages by date
-  const groupedMessages: { date: string; items: typeof messages }[] = []
+  const groupedMessages: { date: string; items: typeof messages }[] = [];
   messages.forEach(msg => {
-    const date = format(new Date(msg.timestamp), 'MMMM d, yyyy')
-    const lastGroup = groupedMessages[groupedMessages.length - 1]
+    const date = format(new Date(msg.timestamp), 'MMMM d, yyyy');
+    const lastGroup = groupedMessages[groupedMessages.length - 1];
     if (lastGroup && lastGroup.date === date) {
-      lastGroup.items.push(msg)
+      lastGroup.items.push(msg);
     } else {
-      groupedMessages.push({ date, items: [msg] })
+      groupedMessages.push({ date, items: [msg] });
     }
-  })
+  });
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
@@ -68,9 +68,9 @@ export default function MessageList({ userId }: MessageListProps) {
             </div>
             
             {group.items.map((msg, index) => {
-              const isSent = msg.sender_id === currentUserId
+              const isSent = msg.sender_id === currentUserId;
               const showTime = index === group.items.length - 1 || 
-                new Date(group.items[index + 1].timestamp).getTime() - new Date(msg.timestamp).getTime() > 60000
+                new Date(group.items[index + 1].timestamp).getTime() - new Date(msg.timestamp).getTime() > 60000;
 
               return (
                 <div
@@ -117,7 +117,7 @@ export default function MessageList({ userId }: MessageListProps) {
                     )}
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
         ))
@@ -137,5 +137,5 @@ export default function MessageList({ userId }: MessageListProps) {
 
       <div ref={messagesEndRef} />
     </div>
-  )
+  );
 }

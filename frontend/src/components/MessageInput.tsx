@@ -1,48 +1,48 @@
-import { useState, useRef, useCallback } from 'react'
-import { useMessagesStore } from '../stores/messagesStore'
-import { useWebSocketStore } from '../stores/websocketStore'
+import { useState, useRef, useCallback } from 'react';
+import { useMessagesStore } from '../stores/messagesStore';
+import { useWebSocketStore } from '../stores/websocketStore';
 
 interface MessageInputProps {
   userId: number
 }
 
 export default function MessageInput({ userId }: MessageInputProps) {
-  const [message, setMessage] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const sendMessage = useMessagesStore(state => state.sendMessage)
-  const sendTyping = useWebSocketStore(state => state.sendTyping)
+  const [message, setMessage] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendMessage = useMessagesStore(state => state.sendMessage);
+  const sendTyping = useWebSocketStore(state => state.sendTyping);
 
   const handleTyping = useCallback(() => {
-    sendTyping(userId, true)
+    sendTyping(userId, true);
     
     if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current)
+      clearTimeout(typingTimeoutRef.current);
     }
     
     typingTimeoutRef.current = setTimeout(() => {
-      sendTyping(userId, false)
-    }, 3000)
-  }, [userId, sendTyping])
+      sendTyping(userId, false);
+    }, 3000);
+  }, [userId, sendTyping]);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!message.trim() || isSending) return
+    e.preventDefault();
+    if (!message.trim() || isSending) return;
 
-    setIsSending(true)
-    setError(null)
+    setIsSending(true);
+    setError(null);
     try {
-      await sendMessage(userId, message.trim())
-      setMessage('')
-      sendTyping(userId, false)
+      await sendMessage(userId, message.trim());
+      setMessage('');
+      sendTyping(userId, false);
     } catch (err) {
-      console.error('Failed to send message:', err)
-      setError('Failed to send. Tap to retry.')
+      console.error('Failed to send message:', err);
+      setError('Failed to send. Tap to retry.');
     } finally {
-      setIsSending(false)
+      setIsSending(false);
     }
-  }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="glass border-t border-slate-800 p-3 pb-safe">
@@ -56,8 +56,8 @@ export default function MessageInput({ userId }: MessageInputProps) {
           type="text"
           value={message}
           onChange={(e) => {
-            setMessage(e.target.value)
-            handleTyping()
+            setMessage(e.target.value);
+            handleTyping();
           }}
           placeholder="Message..."
           className="flex-1 bg-transparent text-white placeholder-slate-400 outline-none text-sm"
@@ -78,5 +78,5 @@ export default function MessageInput({ userId }: MessageInputProps) {
         </button>
       </div>
     </form>
-  )
+  );
 }

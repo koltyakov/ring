@@ -1,35 +1,35 @@
-import { useState } from 'react'
-import { useAuthStore } from '../stores/authStore'
+import { useState } from 'react';
+import { useAuthStore } from '../stores/authStore';
 
 export default function LoginPage() {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [inviteCode, setInviteCode] = useState('')
-  const [isValidating, setIsValidating] = useState(false)
-  const { login, register, isLoading, error, clearError } = useAuthStore()
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
+  const { login, register, isLoading, error, clearError } = useAuthStore();
 
   const handleModeSwitch = () => {
-    setMode(mode === 'login' ? 'register' : 'login')
-    setInviteCode('')
-    setPassword('')
-    clearError()
-  }
+    setMode(mode === 'login' ? 'register' : 'login');
+    setInviteCode('');
+    setPassword('');
+    clearError();
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
 
     if (mode === 'register') {
-      setIsValidating(true)
+      setIsValidating(true);
       try {
-        await register(username, password, inviteCode)
+        await register(username, password, inviteCode);
       } catch {
-        setIsValidating(false)
+        setIsValidating(false);
       }
     } else {
-      await login(username, password)
+      await login(username, password);
     }
-  }
+  };
 
   return (
     <div className="min-h-full flex flex-col items-center justify-center p-6 bg-slate-950">
@@ -145,5 +145,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

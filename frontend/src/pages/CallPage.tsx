@@ -1,211 +1,563 @@
-import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { useUsersStore } from '../stores/usersStore'
-import { useWebSocketStore } from '../stores/websocketStore'
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useUsersStore } from '../stores/usersStore';
+import { useWebSocketStore } from '../stores/websocketStore';
 
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-]
+];
+
+// ──────────────────────────── Audio helpers ────────────────────────────
+
+let audioCtx: AudioContext | null = null;
+function getAudioCtx() {
+  if (!audioCtx || audioCtx.state === 'closed') audioCtx = new AudioContext();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+/**
+ * Play a repeating outgoing "calling" tone (dual-tone, like a real phone).
+ * Returns a stop() function.
+ */
+function playCallingTone(): () => void {
+  const ctx = getAudioCtx();
+  const gain = ctx.createGain();
+  gain.gain.value = 0.08;
+  gain.connect(ctx.destination);
+
+  let stopped = false;
+  let currentOscs: OscillatorNode[] = [];
+  let timeout: ReturnType<typeof setTimeout>;
+
+  const ring = () => {
+    if (stopped) return;
+    // US-style ringback: 440 Hz + 480 Hz for 2 s, silence 4 s
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    osc1.type = 'sine';
+    osc2.type = 'sine';
+    osc1.frequency.value = 440;
+    osc2.frequency.value = 480;
+    osc1.connect(gain);
+    osc2.connect(gain);
+    osc1.start();
+    osc2.start();
+    osc1.stop(ctx.currentTime + 2);
+    osc2.stop(ctx.currentTime + 2);
+    currentOscs = [osc1, osc2];
+    timeout = setTimeout(ring, 4000);
+  };
+  ring();
+
+  return () => {
+    stopped = true;
+    clearTimeout(timeout);
+    currentOscs.forEach(o => { try { o.stop(); } catch { /* already stopped */ } });
+    currentOscs = [];
+  };
+}
+
+/**
+ * Play a repeating "ring-ring" pattern for the callee.
+ * Returns a stop() function.
+ */
+function playRingtone(): () => void {
+  const ctx = getAudioCtx();
+  const gain = ctx.createGain();
+  gain.gain.value = 0.12;
+  gain.connect(ctx.destination);
+
+  let stopped = false;
+  let currentOscs: OscillatorNode[] = [];
+  let timeout: ReturnType<typeof setTimeout>;
+
+  const ring = () => {
+    if (stopped) return;
+    const oscs: OscillatorNode[] = [];
+    // Two short bursts
+    for (let i = 0; i < 2; i++) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = 440 + i * 40;
+      osc.connect(gain);
+      const start = ctx.currentTime + i * 0.3;
+      osc.start(start);
+      osc.stop(start + 0.2);
+      oscs.push(osc);
+    }
+    currentOscs = oscs;
+    timeout = setTimeout(ring, 2500);
+  };
+  ring();
+
+  return () => {
+    stopped = true;
+    clearTimeout(timeout);
+    currentOscs.forEach(o => { try { o.stop(); } catch { /* already stopped */ } });
+    currentOscs = [];
+  };
+}
+
+/** Short "call ended" beep */
+function playEndTone() {
+  try {
+    const ctx = getAudioCtx();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.1;
+    gain.connect(ctx.destination);
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 350;
+    osc.connect(gain);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.4);
+  } catch {
+    /* ignore */
+  }
+}
+
+// ───────────────────────────── Component ──────────────────────────────
+
+interface IncomingCallState {
+  from: number
+  data: unknown
+}
 
 export default function CallPage() {
-  const { userId } = useParams<{ userId: string }>()
-  const navigate = useNavigate()
-  const user = useUsersStore(state => state.getUserById(parseInt(userId!, 10)))
-  const sendOffer = useWebSocketStore(state => state.sendCallOffer)
-  const sendAnswer = useWebSocketStore(state => state.sendCallAnswer)
-  const sendIceCandidate = useWebSocketStore(state => state.sendIceCandidate)
-  const endCall = useWebSocketStore(state => state.endCall)
-  const isConnected = useWebSocketStore(state => state.isConnected)
+  const { userId } = useParams<{ userId: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const user = useUsersStore(state => state.getUserById(parseInt(userId!, 10)));
+  const sendOffer = useWebSocketStore(state => state.sendCallOffer);
+  const sendAnswer = useWebSocketStore(state => state.sendCallAnswer);
+  const sendIceCandidate = useWebSocketStore(state => state.sendIceCandidate);
+  const endCall = useWebSocketStore(state => state.endCall);
+  const isConnected = useWebSocketStore(state => state.isConnected);
 
-  const [callState, setCallState] = useState<'connecting' | 'ringing' | 'connected' | 'ended'>('connecting')
-  const [isMuted, setIsMuted] = useState(false)
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
-  const [isSpeakerOn, setIsSpeakerOn] = useState(false)
-  const [callDuration, setCallDuration] = useState(0)
+  const [callState, setCallState] = useState<'connecting' | 'ringing' | 'connected' | 'ended'>('connecting');
+  const [isMuted, setIsMuted] = useState(false);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
+  const [callDuration, setCallDuration] = useState(0);
 
-  const localVideoRef = useRef<HTMLVideoElement>(null)
-  const remoteVideoRef = useRef<HTMLVideoElement>(null)
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null)
-  const localStreamRef = useRef<MediaStream | null>(null)
-  const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const incomingOfferRef = useRef<IncomingCallState | null>(null);
 
-  const otherUserId = parseInt(userId!, 10)
-  const isIncoming = window.location.search.includes('incoming=true')
+  // ICE candidate buffer — holds candidates that arrive before remote description is set
+  const iceCandidateBuffer = useRef<RTCIceCandidateInit[]>([]);
+  const remoteDescriptionSet = useRef(false);
 
+  // Audio stop handles
+  const stopAudioRef = useRef<(() => void) | null>(null);
+
+  // Ringing timeout ref (auto-cancel if nobody answers)
+  const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Prevent double-cleanup
+  const cleanedUpRef = useRef(false);
+
+  const clearIncomingCall = useWebSocketStore(state => state.clearIncomingCall);
+
+  const otherUserId = parseInt(userId!, 10);
+  const isIncoming = window.location.search.includes('incoming=true');
+  const incomingOffer = (location.state as { incomingOffer?: IncomingCallState } | null)?.incomingOffer;
+
+  // ─── Flush buffered ICE candidates once remote description is set ───
+  const flushIceCandidates = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    const buffered = iceCandidateBuffer.current.splice(0);
+    for (const candidate of buffered) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn('[Call] Failed to add buffered ICE candidate:', err);
+      }
+    }
+  }, []);
+
+  // ─── Cleanup everything ───
+  const cleanup = useCallback(() => {
+    if (cleanedUpRef.current) return;
+    cleanedUpRef.current = true;
+
+    // Stop audio
+    stopAudioRef.current?.();
+    stopAudioRef.current = null;
+
+    // Clear ringing timeout
+    if (ringingTimeoutRef.current) {
+      clearTimeout(ringingTimeoutRef.current);
+      ringingTimeoutRef.current = null;
+    }
+
+    // Stop call timer
+    if (callTimerRef.current) {
+      clearInterval(callTimerRef.current);
+      callTimerRef.current = null;
+    }
+
+    // Stop all local media tracks (camera, mic)
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      localStreamRef.current = null;
+    }
+
+    // Detach video elements
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+
+    // Close peer connection
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.ontrack = null;
+      peerConnectionRef.current.onicecandidate = null;
+      peerConnectionRef.current.onconnectionstatechange = null;
+      peerConnectionRef.current.oniceconnectionstatechange = null;
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+  }, []);
+
+  // ─── Handle end call ───
+  const handleEndCall = useCallback(() => {
+    endCall(otherUserId);
+    playEndTone();
+    cleanup();
+    setCallState('ended');
+    clearIncomingCall();
+    try {
+      sessionStorage.removeItem('ring.incomingOffer');
+    } catch {
+      // Ignore storage errors
+    }
+    setTimeout(() => navigate(-1), 600);
+  }, [endCall, otherUserId, cleanup, navigate, clearIncomingCall]);
+
+  // ─── Main call setup effect ───
   useEffect(() => {
-    if (!user || !isConnected) return
+    if (!user) return;
+    // Reset for this mount
+    cleanedUpRef.current = false;
+    remoteDescriptionSet.current = false;
+    iceCandidateBuffer.current = [];
 
-    initializeCall()
-
-    // Listen for WebSocket events
-    const handleAnswer = (e: CustomEvent) => {
-      const { data } = e.detail
-      handleCallAnswer(data)
+    // Capture any incoming offer before clearing store state
+    let sessionOffer: IncomingCallState | null = null;
+    try {
+      const raw = sessionStorage.getItem('ring.incomingOffer');
+      if (raw) sessionOffer = JSON.parse(raw) as IncomingCallState;
+    } catch {
+      sessionOffer = null;
     }
+    incomingOfferRef.current = incomingOffer ?? useWebSocketStore.getState().incomingCall ?? sessionOffer;
 
-    const handleIce = (e: CustomEvent) => {
-      const { candidate } = e.detail
-      handleIceCandidate(candidate)
-    }
+    // Clear any incoming call state so the Layout modal doesn't re-appear
+    clearIncomingCall();
+
+    let mounted = true;
+    let startTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const initializeCall = async () => {
+      try {
+        // 1. Get local media
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true,
+        });
+
+        if (!mounted) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
+        localStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+
+        // 2. Create peer connection
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        peerConnectionRef.current = pc;
+
+        // Add local tracks to pc
+        stream.getTracks().forEach(track => {
+          pc.addTrack(track, stream);
+        });
+
+        // Handle incoming remote tracks
+        pc.ontrack = (event) => {
+          if (remoteVideoRef.current && event.streams[0]) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+            remoteVideoRef.current.play().catch(() => {
+              // Autoplay might be blocked; user interaction will start playback.
+            });
+          }
+        };
+
+        // Send ICE candidates to peer
+        pc.onicecandidate = (event) => {
+          if (event.candidate) {
+            sendIceCandidate(otherUserId, event.candidate);
+          }
+        };
+
+        // Monitor connection state
+        pc.onconnectionstatechange = () => {
+          if (!mounted) return;
+          console.log('[Call] connectionState:', pc.connectionState);
+          switch (pc.connectionState) {
+            case 'connecting':
+              setCallState('connecting');
+              break;
+            case 'connected':
+              setCallState('connected');
+              // Stop ringing/calling sounds
+              stopAudioRef.current?.();
+              stopAudioRef.current = null;
+              // Start call timer
+              if (!callTimerRef.current) {
+                callTimerRef.current = setInterval(() => {
+                  setCallDuration(prev => prev + 1);
+                }, 1000);
+              }
+              break;
+            case 'disconnected':
+              console.warn('[Call] Peer disconnected, waiting for recovery…');
+              break;
+            case 'failed':
+              console.error('[Call] Peer connection failed');
+              playEndTone();
+              setCallState('ended');
+              cleanup();
+              setTimeout(() => { if (mounted) navigate(-1); }, 1200);
+              break;
+            case 'closed':
+              break;
+          }
+        };
+
+        // Monitor ICE connection state (more granular)
+        pc.oniceconnectionstatechange = () => {
+          if (!mounted) return;
+          console.log('[Call] iceConnectionState:', pc.iceConnectionState);
+          if (pc.iceConnectionState === 'disconnected') {
+            setCallState('connecting');
+            setTimeout(() => {
+              if (!mounted) return;
+              if (pc.iceConnectionState === 'disconnected') {
+                console.warn('[Call] ICE disconnected, attempting restart');
+                pc.restartIce();
+              }
+            }, 1500);
+          }
+          if (pc.iceConnectionState === 'failed') {
+            console.warn('[Call] ICE failed, attempting restart');
+            pc.restartIce();
+          }
+        };
+
+        // 3. Initiate or accept
+        if (isIncoming) {
+          // ── Incoming call: read the offer from store directly ──
+          // The offer was already stored before we navigated here.
+          const stored = incomingOfferRef.current;
+          if (stored?.data) {
+            console.log('[Call] Using stored offer from incomingCall state');
+            setCallState('connecting');
+            await pc.setRemoteDescription(new RTCSessionDescription(stored.data as RTCSessionDescriptionInit));
+            remoteDescriptionSet.current = true;
+            await flushIceCandidates();
+
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            sendAnswer(otherUserId, answer);
+            try {
+              sessionStorage.removeItem('ring.incomingOffer');
+            } catch {
+              // Ignore storage errors
+            }
+          } else {
+            // Fallback: wait for offer event (rare edge case)
+            console.warn('[Call] No stored offer found, waiting for event…');
+            setCallState('ringing');
+            stopAudioRef.current = playRingtone();
+          }
+        } else {
+          // ── Outgoing call: create and send offer ──
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendOffer(otherUserId, offer);
+          setCallState('ringing');
+
+          // Play calling tone while waiting for the other party
+          stopAudioRef.current = playCallingTone();
+
+          // Auto-cancel if nobody answers within 45 seconds
+          ringingTimeoutRef.current = setTimeout(() => {
+            if (!mounted) return;
+            const currentState = peerConnectionRef.current?.connectionState;
+            if (currentState !== 'connected') {
+              console.log('[Call] Ringing timed out after 45s');
+              handleEndCall();
+            }
+          }, 45_000);
+        }
+      } catch (error) {
+        console.error('[Call] Failed to initialize call:', error);
+        if (mounted) {
+          cleanup();
+          navigate(-1);
+        }
+      }
+    };
+
+    const waitForSocketAndStart = () => {
+      if (!mounted) return;
+      if (!useWebSocketStore.getState().isConnected) {
+        startTimer = setTimeout(waitForSocketAndStart, 500);
+        return;
+      }
+      initializeCall();
+    };
+
+    waitForSocketAndStart();
+
+    // ── Signaling event listeners ──
+
+    const handleAnswer = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const { data } = detail;
+      if (!data) return;
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      // Caller: stop ringback and move to connecting while ICE completes
+      stopAudioRef.current?.();
+      stopAudioRef.current = null;
+      if (ringingTimeoutRef.current) {
+        clearTimeout(ringingTimeoutRef.current);
+        ringingTimeoutRef.current = null;
+      }
+      setCallState('connecting');
+      pc.setRemoteDescription(new RTCSessionDescription(data))
+        .then(() => {
+          remoteDescriptionSet.current = true;
+          return flushIceCandidates();
+        })
+        .catch(err => console.error('[Call] Failed to set remote answer:', err));
+    };
+
+    const handleIce = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const { candidate } = detail;
+      if (!candidate) return;
+
+      if (remoteDescriptionSet.current && peerConnectionRef.current) {
+        peerConnectionRef.current
+          .addIceCandidate(new RTCIceCandidate(candidate))
+          .catch(err => console.warn('[Call] Failed to add ICE candidate:', err));
+      } else {
+        // Buffer until remote description is set
+        iceCandidateBuffer.current.push(candidate);
+      }
+    };
 
     const handleEnd = () => {
-      setCallState('ended')
-      cleanup()
-      setTimeout(() => navigate(-1), 1000)
-    }
+      if (!mounted) return;
+      playEndTone();
+      setCallState('ended');
+      cleanup();
+      clearIncomingCall();
+      try {
+        sessionStorage.removeItem('ring.incomingOffer');
+      } catch {
+        // Ignore storage errors
+      }
+      setTimeout(() => { if (mounted) navigate(-1); }, 1000);
+    };
 
-    window.addEventListener('call-answered', handleAnswer as EventListener)
-    window.addEventListener('ice-candidate', handleIce as EventListener)
-    window.addEventListener('call-ended', handleEnd)
+    // Fallback listener for late incoming offers
+    const handleIncomingOffer = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      const { from, data } = detail;
+      if (from !== otherUserId || !data) return;
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
+      if (remoteDescriptionSet.current) return;
+
+      pc.setRemoteDescription(new RTCSessionDescription(data))
+        .then(async () => {
+          remoteDescriptionSet.current = true;
+          await flushIceCandidates();
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          sendAnswer(otherUserId, answer);
+          stopAudioRef.current?.();
+          stopAudioRef.current = null;
+          setCallState('connecting');
+          try {
+            sessionStorage.removeItem('ring.incomingOffer');
+          } catch {
+            // Ignore storage errors
+          }
+        })
+        .catch(err => console.error('[Call] Failed to handle late offer:', err));
+    };
+
+    window.addEventListener('call-answered', handleAnswer);
+    window.addEventListener('ice-candidate', handleIce);
+    window.addEventListener('call-ended', handleEnd);
+    window.addEventListener('incoming-call', handleIncomingOffer);
 
     return () => {
-      window.removeEventListener('call-answered', handleAnswer as EventListener)
-      window.removeEventListener('ice-candidate', handleIce as EventListener)
-      window.removeEventListener('call-ended', handleEnd)
-      cleanup()
-    }
-  }, [user, isConnected])
-
-  const initializeCall = async () => {
-    try {
-      // Get local media
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      })
-      localStreamRef.current = stream
-
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
+      mounted = false;
+      window.removeEventListener('call-answered', handleAnswer);
+      window.removeEventListener('ice-candidate', handleIce);
+      window.removeEventListener('call-ended', handleEnd);
+      window.removeEventListener('incoming-call', handleIncomingOffer);
+      if (startTimer) {
+        clearTimeout(startTimer);
+        startTimer = null;
       }
+      cleanup();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
-      // Create peer connection
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-      peerConnectionRef.current = pc
-
-      // Add local tracks
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream)
-      })
-
-      // Handle remote stream
-      pc.ontrack = (event) => {
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = event.streams[0]
-        }
-      }
-
-      // Handle ICE candidates
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          sendIceCandidate(otherUserId, event.candidate)
-        }
-      }
-
-      // Handle connection state
-      pc.onconnectionstatechange = () => {
-        switch (pc.connectionState) {
-          case 'connected':
-            setCallState('connected')
-            startCallTimer()
-            break
-          case 'disconnected':
-          case 'failed':
-            setCallState('ended')
-            break
-        }
-      }
-
-      if (isIncoming) {
-        // Wait for offer
-        const handleIncomingOffer = (e: CustomEvent) => {
-          const { from, data } = e.detail
-          if (from === otherUserId) {
-            handleCallOffer(data)
-            window.removeEventListener('incoming-call', handleIncomingOffer as EventListener)
-          }
-        }
-        window.addEventListener('incoming-call', handleIncomingOffer as EventListener)
-      } else {
-        // Initiate call
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        sendOffer(otherUserId, offer)
-        setCallState('ringing')
-      }
-    } catch (error) {
-      console.error('Failed to initialize call:', error)
-      navigate(-1)
-    }
-  }
-
-  const handleCallOffer = async (offer: RTCSessionDescriptionInit) => {
-    const pc = peerConnectionRef.current
-    if (!pc) return
-
-    await pc.setRemoteDescription(new RTCSessionDescription(offer))
-    const answer = await pc.createAnswer()
-    await pc.setLocalDescription(answer)
-    sendAnswer(otherUserId, answer)
-  }
-
-  const handleCallAnswer = async (answer: RTCSessionDescriptionInit) => {
-    const pc = peerConnectionRef.current
-    if (!pc) return
-
-    await pc.setRemoteDescription(new RTCSessionDescription(answer))
-  }
-
-  const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
-    const pc = peerConnectionRef.current
-    if (!pc) return
-
-    await pc.addIceCandidate(new RTCIceCandidate(candidate))
-  }
-
-  const startCallTimer = () => {
-    callTimerRef.current = setInterval(() => {
-      setCallDuration(prev => prev + 1)
-    }, 1000)
-  }
-
-  const cleanup = () => {
-    if (callTimerRef.current) {
-      clearInterval(callTimerRef.current)
-    }
-
-    localStreamRef.current?.getTracks().forEach(track => track.stop())
-    peerConnectionRef.current?.close()
-  }
-
-  const handleEndCall = () => {
-    endCall(otherUserId)
-    cleanup()
-    navigate(-1)
-  }
-
+  // ─── Toggle controls ───
   const toggleMute = () => {
+    const nextMuted = !isMuted;
     localStreamRef.current?.getAudioTracks().forEach(track => {
-      track.enabled = !track.enabled
-    })
-    setIsMuted(!isMuted)
-  }
+      track.enabled = !nextMuted;
+    });
+    setIsMuted(nextMuted);
+  };
 
   const toggleVideo = () => {
     localStreamRef.current?.getVideoTracks().forEach(track => {
-      track.enabled = !track.enabled
-    })
-    setIsVideoEnabled(!isVideoEnabled)
-  }
+      track.enabled = !track.enabled;
+    });
+    setIsVideoEnabled(!isVideoEnabled);
+  };
 
   const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
-  if (!user) return null
+  if (!user) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
@@ -233,6 +585,22 @@ export default function CallPage() {
           className="absolute inset-0 w-full h-full object-cover"
         />
 
+        {/* Pulsing animation while ringing/connecting */}
+        {(callState === 'connecting' || callState === 'ringing') && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
+            <div className="relative mb-4">
+              <div className="absolute inset-0 w-24 h-24 rounded-full bg-primary-500/20 animate-ping" />
+              <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-3xl font-bold">
+                {user.username[0].toUpperCase()}
+              </div>
+            </div>
+            <h2 className="text-2xl font-bold">{user.username}</h2>
+            <p className="text-slate-300 mt-2 animate-pulse">
+              {callState === 'connecting' ? 'Connecting...' : 'Ringing...'}
+            </p>
+          </div>
+        )}
+
         {/* Local video (picture in picture) */}
         <div className="absolute top-4 right-4 w-32 h-44 rounded-xl overflow-hidden border-2 border-white/20 shadow-lg">
           <video
@@ -248,21 +616,6 @@ export default function CallPage() {
                 {user.username[0].toUpperCase()}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* User info overlay */}
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-white">
-          {(callState === 'connecting' || callState === 'ringing') && (
-            <>
-              <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-3xl font-bold mb-4">
-                {user.username[0].toUpperCase()}
-              </div>
-              <h2 className="text-2xl font-bold">{user.username}</h2>
-              <p className="text-slate-300 mt-2">
-                {callState === 'connecting' ? 'Calling...' : 'Ringing...'}
-              </p>
-            </>
           )}
         </div>
       </div>
@@ -326,5 +679,5 @@ export default function CallPage() {
         </div>
       </div>
     </div>
-  )
+  );
 }

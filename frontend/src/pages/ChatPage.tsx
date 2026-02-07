@@ -1,16 +1,16 @@
-import { useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { useWebSocketStore } from '../stores/websocketStore'
-import UserList from '../components/UserList'
-import ChatHeader from '../components/ChatHeader'
-import MessageList from '../components/MessageList'
-import MessageInput from '../components/MessageInput'
-import ProfilePage from './ProfilePage'
+import { useState } from 'react';
+import { useParams } from 'react-router-dom';
+import { useWebSocketStore } from '../stores/websocketStore';
+import UserList from '../components/UserList';
+import ChatHeader from '../components/ChatHeader';
+import MessageList from '../components/MessageList';
+import MessageInput from '../components/MessageInput';
+import ProfilePage from './ProfilePage';
 
 export default function ChatPage() {
-  const { userId } = useParams<{ userId?: string }>()
-  const [activeTab, setActiveTab] = useState<'chats' | 'profile'>('chats')
-  const isConnected = useWebSocketStore(state => state.isConnected)
+  const { userId } = useParams<{ userId?: string }>();
+  const [activeTab, setActiveTab] = useState<'chats' | 'profile'>('chats');
+  const isConnected = useWebSocketStore(state => state.isConnected);
 
   if (!userId) {
     return (
@@ -54,10 +54,10 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
-    )
+    );
   }
 
-  const selectedUserId = parseInt(userId, 10)
+  const selectedUserId = parseInt(userId, 10);
 
   return (
     <div className="flex-1 flex flex-col mobile-full sm:static">
@@ -65,5 +65,5 @@ export default function ChatPage() {
       <MessageList userId={selectedUserId} />
       <MessageInput userId={selectedUserId} />
     </div>
-  )
+  );
 }

@@ -1,25 +1,25 @@
-import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { useUsersStore } from '../stores/usersStore'
-import { formatDistanceToNow } from 'date-fns'
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useUsersStore } from '../stores/usersStore';
+import { formatDistanceToNow } from 'date-fns';
 
 export default function UserList() {
-  const navigate = useNavigate()
-  const { users, isLoading, fetchUsers } = useUsersStore()
-  const [_showInvite, _setShowInvite] = useState(false)
+  const navigate = useNavigate();
+  const { users, isLoading, fetchUsers } = useUsersStore();
+  const [_showInvite, _setShowInvite] = useState(false);
 
   useEffect(() => {
     // Poll for user updates every 30 seconds
-    const interval = setInterval(fetchUsers, 30000)
-    return () => clearInterval(interval)
-  }, [fetchUsers])
+    const interval = setInterval(fetchUsers, 30000);
+    return () => clearInterval(interval);
+  }, [fetchUsers]);
 
   if (isLoading && users.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
       </div>
-    )
+    );
   }
 
   return (
@@ -64,5 +64,5 @@ export default function UserList() {
         </div>
       )}
     </div>
-  )
+  );
 }

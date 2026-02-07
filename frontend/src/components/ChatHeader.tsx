@@ -1,15 +1,15 @@
-import { useNavigate } from 'react-router-dom'
-import { useUsersStore } from '../stores/usersStore'
+import { useNavigate } from 'react-router-dom';
+import { useUsersStore } from '../stores/usersStore';
 
 interface ChatHeaderProps {
   userId: number
 }
 
 export default function ChatHeader({ userId }: ChatHeaderProps) {
-  const navigate = useNavigate()
-  const user = useUsersStore(state => state.getUserById(userId))
+  const navigate = useNavigate();
+  const user = useUsersStore(state => state.getUserById(userId));
 
-  if (!user) return null
+  if (!user) return null;
 
   return (
     <div className="glass border-b border-slate-800 px-4 py-3 flex items-center gap-3 pt-safe">
@@ -47,5 +47,5 @@ export default function ChatHeader({ userId }: ChatHeaderProps) {
         </svg>
       </button>
     </div>
-  )
+  );
 }
