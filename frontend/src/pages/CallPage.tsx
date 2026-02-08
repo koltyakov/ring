@@ -221,6 +221,7 @@ export default function CallPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
+  const [isRemotePortrait, setIsRemotePortrait] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -434,6 +435,12 @@ export default function CallPage() {
     }
   }, []);
 
+  const updateRemoteAspect = useCallback(() => {
+    const remoteVideo = remoteVideoRef.current;
+    if (!remoteVideo || remoteVideo.videoWidth === 0 || remoteVideo.videoHeight === 0) return;
+    setIsRemotePortrait(remoteVideo.videoHeight > remoteVideo.videoWidth);
+  }, []);
+
   const markConnected = useCallback(() => {
     stopCallAudio();
     clearRingingTimeout();
@@ -536,6 +543,9 @@ export default function CallPage() {
           void remoteVideoRef.current.play().catch(() => {
             // autoplay can be blocked
           });
+          if (event.track.kind === 'video') {
+            requestAnimationFrame(updateRemoteAspect);
+          }
           markConnected();
         };
 
@@ -929,7 +939,8 @@ export default function CallPage() {
           ref={remoteVideoRef}
           autoPlay
           playsInline
-          className="absolute inset-0 w-full h-full object-cover"
+          onLoadedMetadata={updateRemoteAspect}
+          className={`absolute inset-0 w-full h-full bg-black ${isRemotePortrait ? 'object-cover md:object-contain' : 'object-cover'}`}
         />
 
         {(callState === 'connecting' || callState === 'ringing') && (
