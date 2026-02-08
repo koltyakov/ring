@@ -34,7 +34,9 @@ export default function MessageList({ userId }: MessageListProps) {
     );
   }
 
-  const visibleMessages = messages.filter(msg => Boolean(msg.decryptedContent));
+  const visibleMessages = messages.filter(
+    msg => Boolean(msg.decryptedContent) && msg.decryptedContent !== '[Unable to decrypt]'
+  );
 
   // Group messages by date
   const groupedMessages: { date: string; items: typeof visibleMessages }[] = [];
