@@ -12,7 +12,7 @@ export default function ChatHeader({ userId }: ChatHeaderProps) {
   if (!user) return null;
 
   return (
-    <div className="glass border-b border-slate-800 px-4 py-3 flex items-center gap-3 pt-safe">
+    <div className="glass border-b border-slate-800 px-4 py-3 flex items-center gap-3 pt-safe shrink-0">
       <button
         onClick={() => navigate('/')}
         className="p-2 -ml-2 rounded-full hover:bg-slate-800 transition-colors"

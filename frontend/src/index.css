@@ -68,7 +68,9 @@
 /* Mobile optimizations */
 @media (max-width: 640px) {
   .mobile-full {
-    @apply fixed inset-0 z-50;
+    @apply relative z-50;
+    height: 100dvh;
+    min-height: 100dvh;
   }
 }
 

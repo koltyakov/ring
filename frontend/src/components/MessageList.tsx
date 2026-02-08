@@ -34,9 +34,11 @@ export default function MessageList({ userId }: MessageListProps) {
     );
   }
 
+  const visibleMessages = messages.filter(msg => Boolean(msg.decryptedContent));
+
   // Group messages by date
-  const groupedMessages: { date: string; items: typeof messages }[] = [];
-  messages.forEach(msg => {
+  const groupedMessages: { date: string; items: typeof visibleMessages }[] = [];
+  visibleMessages.forEach(msg => {
     const date = format(new Date(msg.timestamp), 'MMMM d, yyyy');
     const lastGroup = groupedMessages[groupedMessages.length - 1];
     if (lastGroup && lastGroup.date === date) {
@@ -48,7 +50,7 @@ export default function MessageList({ userId }: MessageListProps) {
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
-      {messages.length === 0 ? (
+      {visibleMessages.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">

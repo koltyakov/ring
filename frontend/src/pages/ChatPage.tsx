@@ -60,7 +60,7 @@ export default function ChatPage() {
   const selectedUserId = parseInt(userId, 10);
 
   return (
-    <div className="flex-1 flex flex-col mobile-full sm:static">
+    <div className="flex-1 flex flex-col min-h-0 mobile-full sm:static">
       <ChatHeader userId={selectedUserId} />
       <MessageList userId={selectedUserId} />
       <MessageInput userId={selectedUserId} />
