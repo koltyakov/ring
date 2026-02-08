@@ -15,8 +15,8 @@ A lightweight, secure, end-to-end encrypted chat and voice/video calling applica
 
 **Backend:**
 
-- Go 1.21+
-- Gin Web Framework
+- Go 1.23+
+- net/http (standard library)
 - SQLite (WAL mode)
 - Gorilla WebSocket
 
@@ -31,7 +31,7 @@ A lightweight, secure, end-to-end encrypted chat and voice/video calling applica
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.23 or later
 - Node.js 18 or later
 - npm or yarn
 
@@ -73,17 +73,11 @@ The frontend will be built into `backend/static/` and served by the Go server on
 ## First Time Setup
 
 1. Access the app at `http://localhost:8080`
-2. Create the first admin user by generating an invite code:
-   - Temporarily modify the backend to create the first user, or
-   - Use the API directly with curl
-
-### Creating the First User
-
-Since the app uses invite-only registration, you need to bootstrap the first user:
+2. Create the first user (invite not required for the very first account):
 
 ```bash
-# Option 1: Use the bootstrap script
-cd backend && go run cmd/bootstrap/main.go admin yourpassword
+# Option 1: Use the bootstrap helper (creates or updates a user)
+make bootstrap USER=admin PASS=yourpassword
 
 # Option 2: Start fresh and register normally (first user doesn't need invite)
 rm backend/chatapp.db
@@ -98,6 +92,12 @@ Once logged in as an admin, use the API:
 ```bash
 curl -X POST http://localhost:8080/api/invites \
   -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+Or via Make:
+
+```bash
+make create-invite
 ```
 
 ## Architecture
@@ -123,6 +123,12 @@ curl -X POST http://localhost:8080/api/invites \
 - JWT tokens expire after 7 days
 - WebSocket connections are authenticated
 
+## Development Notes
+
+- WebSocket auth uses the JWT in the `Authorization` header for HTTP and the `token` query param for `/api/ws`.
+- Call signaling uses WebSocket event types: `call_offer`, `call_answer`, `call_ice`, `call_end`.
+- In dev, the frontend relies on the Vite proxy (`/api` -> `http://localhost:8080`) and uses same-origin in production builds.
+
 ## API Endpoints
 
 | Method | Endpoint              | Description            |
@@ -132,10 +138,13 @@ curl -X POST http://localhost:8080/api/invites \
 | POST   | /api/invite/validate  | Validate invite code   |
 | GET    | /api/users            | List all users         |
 | GET    | /api/users/me         | Get current user       |
+| POST   | /api/users/update-key | Update public key      |
 | GET    | /api/messages/:userID | Get messages with user |
 | POST   | /api/messages         | Send message           |
+| POST   | /api/messages/clear   | Clear messages         |
 | GET    | /api/ws               | WebSocket connection   |
 | POST   | /api/invites          | Create invite (admin)  |
+| GET    | /health               | Health check           |
 
 ### Environment Variables
 
@@ -147,7 +156,7 @@ curl -X POST http://localhost:8080/api/invites \
 
 **Frontend:**
 
-- `VITE_API_URL` - API base URL (dev proxy configured)
+- Uses dev proxy in Vite and same-origin API in production (no required env vars)
 
 ## License
 
