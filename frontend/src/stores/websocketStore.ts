@@ -201,16 +201,23 @@ function handleWebSocketMessage(message: any) {
       const token = localStorage.getItem('token');
       const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
       
-      useMessagesStore.getState().addMessage({
+      const msg = {
         id: Date.now(),
         sender_id: message.from,
         receiver_id: message.to || currentUserId,
-        type: 'text',
+        type: 'text' as const,
         content: message.content,
         nonce: message.nonce,
         timestamp: new Date(message.timestamp * 1000).toISOString(),
         read: false,
-      });
+      };
+      
+      useMessagesStore.getState().addMessage(msg);
+      
+      // Dispatch event for notification system
+      window.dispatchEvent(new CustomEvent('ws-message-received', {
+        detail: msg
+      }));
       break;
 
     case 'typing':

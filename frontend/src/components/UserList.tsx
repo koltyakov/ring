@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUsersStore } from '../stores/usersStore';
+import { useMessagesStore } from '../stores/messagesStore';
 import { formatDistanceToNow } from 'date-fns';
 
 export default function UserList() {
   const navigate = useNavigate();
   const { users, isLoading, fetchUsers } = useUsersStore();
   const [_showInvite, _setShowInvite] = useState(false);
+  const unreadCounts = useMessagesStore((state) => state.unreadCounts);
 
   useEffect(() => {
     // Poll for user updates every 30 seconds
@@ -34,33 +36,43 @@ export default function UserList() {
         </div>
       ) : (
         <div className="divide-y divide-slate-800">
-          {users.map(user => (
-            <button
-              key={user.id}
-              onClick={() => navigate(`/chat/${user.id}`)}
-              className="w-full flex items-center gap-3 p-4 hover:bg-slate-800/50 transition-colors text-left"
-            >
-              <div className="relative">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-semibold text-lg">
-                  {user.username[0].toUpperCase()}
+          {users.map(user => {
+            const unreadCount = unreadCounts.get(user.id) || 0;
+            return (
+              <button
+                key={user.id}
+                onClick={() => navigate(`/chat/${user.id}`)}
+                className="w-full flex items-center gap-3 p-4 hover:bg-slate-800/50 transition-colors text-left"
+              >
+                <div className="relative">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-semibold text-lg">
+                    {user.username[0].toUpperCase()}
+                  </div>
+                  {user.online && (
+                    <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-950" />
+                  )}
                 </div>
-                {user.online && (
-                  <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 rounded-full border-2 border-slate-950" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h3 className="font-medium text-white truncate">{user.username}</h3>
-                <p className="text-sm text-slate-400">
-                  {user.online 
-                    ? 'Online' 
-                    : user.last_seen 
-                      ? `Last seen ${formatDistanceToNow(new Date(user.last_seen), { addSuffix: true })}`
-                      : 'Offline'
-                  }
-                </p>
-              </div>
-            </button>
-          ))}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium text-white truncate">{user.username}</h3>
+                    {unreadCount > 0 && (
+                      <span className="ml-2 min-w-[20px] h-5 px-1.5 rounded-full bg-primary-500 text-white text-xs font-bold flex items-center justify-center">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-slate-400">
+                    {user.online 
+                      ? 'Online' 
+                      : user.last_seen 
+                        ? `Last seen ${formatDistanceToNow(new Date(user.last_seen), { addSuffix: true })}`
+                        : 'Offline'
+                    }
+                  </p>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

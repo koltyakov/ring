@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useUsersStore } from '../stores/usersStore';
+import { useMessagesStore } from '../stores/messagesStore';
+import { useNotificationStore } from '../stores/notificationStore';
 import { useWebSocketStore } from '../stores/websocketStore';
 
 interface LayoutProps {
@@ -22,9 +24,14 @@ export default function Layout({ children }: LayoutProps) {
   const incomingCall = useWebSocketStore(state => state.incomingCall);
   const clearIncomingCall = useWebSocketStore(state => state.clearIncomingCall);
   const wsEndCall = useWebSocketStore(state => state.endCall);
+  const activeChatUserId = useMessagesStore(state => state.activeChatUserId);
+  const notifications = useNotificationStore(state => state.notifications);
+  const dismissNotification = useNotificationStore(state => state.dismissNotification);
+  const showNotification = useNotificationStore(state => state.showNotification);
   
   const [pendingCall, setPendingCall] = useState<IncomingCallData | null>(null);
   const isOnCallPage = location.pathname.startsWith('/call/');
+  const processedMessagesRef = useRef<Set<string>>(new Set());
 
   // Load users first, then connect WebSocket so presence updates have targets
   useEffect(() => {
@@ -105,6 +112,49 @@ export default function Layout({ children }: LayoutProps) {
     };
   }, [location.pathname]);
 
+  // Listen for new messages and show notifications
+  useEffect(() => {
+    const handleNewMessage = (e: CustomEvent) => {
+      const message = e.detail;
+      const token = localStorage.getItem('token');
+      const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
+      
+      // Only show notification for incoming messages (not sent by us)
+      if (message.sender_id === currentUserId) return;
+      
+      // Don't show notification if we're in the chat with this user
+      if (activeChatUserId === message.sender_id) return;
+      
+      // Create a unique key for this message to prevent duplicates
+      const messageKey = `${message.sender_id}-${message.timestamp}-${message.content}`;
+      if (processedMessagesRef.current.has(messageKey)) return;
+      processedMessagesRef.current.add(messageKey);
+      
+      // Clean up old processed messages (keep last 100)
+      if (processedMessagesRef.current.size > 100) {
+        const iterator = processedMessagesRef.current.values();
+        for (let i = 0; i < 20; i++) {
+          const value = iterator.next().value;
+          if (value) processedMessagesRef.current.delete(value);
+        }
+      }
+      
+      const sender = useUsersStore.getState().getUserById(message.sender_id);
+      if (!sender) return;
+      
+      showNotification({
+        senderId: message.sender_id,
+        senderName: sender.username,
+        message: message.content ? 'New message' : 'Sent you a message',
+      });
+    };
+
+    window.addEventListener('ws-message-received', handleNewMessage as EventListener);
+    return () => {
+      window.removeEventListener('ws-message-received', handleNewMessage as EventListener);
+    };
+  }, [activeChatUserId, showNotification]);
+
   const handleAcceptCall = () => {
     if (pendingCall) {
       clearIncomingCall();
@@ -137,7 +187,47 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="h-full flex flex-col bg-slate-950 relative">
+      {/* Notification animation styles */}
+      <style>{`
+        @keyframes slideDown {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
+      
       {children}
+      
+      {/* Message Notifications */}
+      <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none">
+        {notifications.map((notification) => (
+          <button
+            key={notification.id}
+            onClick={() => {
+              dismissNotification(notification.id);
+              navigate(`/chat/${notification.senderId}`);
+            }}
+            className="pointer-events-auto bg-slate-800/95 backdrop-blur-sm border border-slate-700 rounded-xl px-4 py-3 shadow-lg shadow-black/20 flex items-center gap-3 min-w-[280px] max-w-[90vw] hover:bg-slate-700/95 transition-all duration-200"
+            style={{
+              animation: 'slideDown 0.3s ease-out',
+            }}
+          >
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-semibold flex-shrink-0">
+              {notification.senderName[0].toUpperCase()}
+            </div>
+            <div className="flex-1 min-w-0 text-left">
+              <p className="font-medium text-white text-sm">{notification.senderName}</p>
+              <p className="text-slate-400 text-xs truncate">{notification.message}</p>
+            </div>
+            <div className="w-2 h-2 rounded-full bg-primary-500 flex-shrink-0" />
+          </button>
+        ))}
+      </div>
       
       {/* Incoming Call Modal */}
       {pendingCall && caller && (

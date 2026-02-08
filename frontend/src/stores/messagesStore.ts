@@ -11,18 +11,26 @@ interface MessagesState {
   messages: Map<number, DecryptedMessage[]>
   isLoading: boolean
   typingUsers: Map<number, boolean>
+  unreadCounts: Map<number, number>
+  activeChatUserId: number | null
   fetchMessages: (userId: number) => Promise<void>
   sendMessage: (receiverId: number, content: string) => Promise<void>
   addMessage: (message: Message) => void
   setTyping: (userId: number, typing: boolean) => void
   markMessagesAsRead: (userId: number) => void
   getMessagesForUser: (userId: number) => DecryptedMessage[]
+  getUnreadCount: (userId: number) => number
+  getTotalUnreadCount: () => number
+  setActiveChatUserId: (userId: number | null) => void
+  incrementUnreadCount: (userId: number) => void
 }
 
 export const useMessagesStore = create<MessagesState>((set, get) => ({
   messages: new Map(),
   isLoading: false,
   typingUsers: new Map(),
+  unreadCounts: new Map(),
+  activeChatUserId: null,
 
   fetchMessages: async (userId: number) => {
     set({ isLoading: true });
@@ -127,8 +135,16 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const newMessages = new Map(state.messages);
       const userMessages = newMessages.get(otherUserId) || [];
       newMessages.set(otherUserId, [...userMessages, { ...message, decryptedContent }]);
+      
+      // Increment unread count if message is from someone else and chat is not active
+      const newUnreadCounts = new Map(state.unreadCounts);
+      if (message.sender_id !== currentUserId && state.activeChatUserId !== otherUserId) {
+        const currentCount = newUnreadCounts.get(otherUserId) || 0;
+        newUnreadCounts.set(otherUserId, currentCount + 1);
+      }
+      
       console.log('[Messages] Added message to store for user:', otherUserId, 'Total messages:', userMessages.length + 1);
-      return { messages: newMessages };
+      return { messages: newMessages, unreadCounts: newUnreadCounts };
     });
   },
 
@@ -148,11 +164,46 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         const updatedMessages = userMessages.map(msg => ({ ...msg, read: true }));
         newMessages.set(userId, updatedMessages);
       }
-      return { messages: newMessages };
+      // Clear unread count for this user
+      const newUnreadCounts = new Map(state.unreadCounts);
+      newUnreadCounts.delete(userId);
+      return { messages: newMessages, unreadCounts: newUnreadCounts };
     });
   },
 
   getMessagesForUser: (userId: number) => {
     return get().messages.get(userId) || [];
+  },
+
+  getUnreadCount: (userId: number) => {
+    return get().unreadCounts.get(userId) || 0;
+  },
+
+  getTotalUnreadCount: () => {
+    let total = 0;
+    get().unreadCounts.forEach((count) => {
+      total += count;
+    });
+    return total;
+  },
+
+  setActiveChatUserId: (userId: number | null) => {
+    set((state) => {
+      // When setting a new active chat, clear its unread count
+      const newUnreadCounts = new Map(state.unreadCounts);
+      if (userId !== null) {
+        newUnreadCounts.delete(userId);
+      }
+      return { activeChatUserId: userId, unreadCounts: newUnreadCounts };
+    });
+  },
+
+  incrementUnreadCount: (userId: number) => {
+    set((state) => {
+      const newUnreadCounts = new Map(state.unreadCounts);
+      const currentCount = newUnreadCounts.get(userId) || 0;
+      newUnreadCounts.set(userId, currentCount + 1);
+      return { unreadCounts: newUnreadCounts };
+    });
   },
 }));
