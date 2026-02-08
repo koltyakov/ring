@@ -8,6 +8,13 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
+  width: { ideal: 1280, max: 1920 },
+  height: { ideal: 720, max: 1080 },
+  frameRate: { ideal: 30, max: 60 },
+  facingMode: 'user',
+};
+
 type CallState = 'connecting' | 'ringing' | 'connected' | 'ended';
 
 interface IncomingCallState {
@@ -268,6 +275,7 @@ export default function CallPage() {
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectionFailTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopAudioRef = useRef<(() => void) | null>(null);
 
   const makingOfferRef = useRef(false);
@@ -280,8 +288,11 @@ export default function CallPage() {
   const isMutedRef = useRef(false);
   const isVideoEnabledRef = useRef(false);
   const callIdRef = useRef<string | null>(null);
+  const wasConnectedRef = useRef(false);
 
   const incomingOffer = (location.state as { incomingOffer?: IncomingCallState } | null)?.incomingOffer;
+  const displayName = user?.username ?? 'User';
+  const displayInitial = displayName[0]?.toUpperCase() ?? '?';
 
   const stopCallAudio = useCallback(() => {
     stopAudioRef.current?.();
@@ -298,6 +309,12 @@ export default function CallPage() {
     if (!connectionFailTimeoutRef.current) return;
     clearTimeout(connectionFailTimeoutRef.current);
     connectionFailTimeoutRef.current = null;
+  }, []);
+
+  const clearDisconnectGraceTimeout = useCallback(() => {
+    if (!disconnectGraceTimeoutRef.current) return;
+    clearTimeout(disconnectGraceTimeoutRef.current);
+    disconnectGraceTimeoutRef.current = null;
   }, []);
 
   const ensureCallId = useCallback((preferred?: string | null): string => {
@@ -407,6 +424,7 @@ export default function CallPage() {
     stopCallAudio();
     clearRingingTimeout();
     clearCallFailTimeout();
+    clearDisconnectGraceTimeout();
 
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
@@ -438,9 +456,10 @@ export default function CallPage() {
     remoteDescriptionSetRef.current = false;
     iceCandidateBufferRef.current = [];
     callIdRef.current = null;
+    wasConnectedRef.current = false;
     setIsVideoEnabled(false);
     isVideoEnabledRef.current = false;
-  }, [clearCallFailTimeout, clearRingingTimeout, stopCallAudio]);
+  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearRingingTimeout, stopCallAudio]);
 
   const syncTrackStates = useCallback(() => {
     const stream = localStreamRef.current;
@@ -456,6 +475,22 @@ export default function CallPage() {
       isVideoEnabledRef.current = hasVideo;
     }
   }, []);
+
+  const markConnected = useCallback(() => {
+    stopCallAudio();
+    clearRingingTimeout();
+    clearCallFailTimeout();
+    clearDisconnectGraceTimeout();
+    setCallState('connected');
+    syncTrackStates();
+    wasConnectedRef.current = true;
+
+    if (!callTimerRef.current) {
+      callTimerRef.current = setInterval(() => {
+        setCallDuration((value) => value + 1);
+      }, 1000);
+    }
+  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearRingingTimeout, stopCallAudio, syncTrackStates]);
 
   const finishAndNavigateBack = useCallback((delayMs: number) => {
     setTimeout(() => {
@@ -477,8 +512,9 @@ export default function CallPage() {
     finishAndNavigateBack(600);
   }, [clearIncomingCall, cleanup, endCall, finishAndNavigateBack, otherUserId]);
 
+  // Keep this effect keyed to call identity only; presence/user-list updates must not tear down active WebRTC sessions.
   useEffect(() => {
-    if (!user || Number.isNaN(otherUserId)) return;
+    if (Number.isNaN(otherUserId)) return;
 
     cleanedUpRef.current = false;
     remoteDescriptionSetRef.current = false;
@@ -487,6 +523,8 @@ export default function CallPage() {
     ignoreOfferRef.current = false;
     iceRestartingRef.current = false;
     callIdRef.current = incomingOffer?.callId ?? null;
+    wasConnectedRef.current = false;
+    clearDisconnectGraceTimeout();
     politeRef.current = getCurrentUserId() < otherUserId;
 
     let mounted = true;
@@ -540,6 +578,7 @@ export default function CallPage() {
           void remoteVideoRef.current.play().catch(() => {
             // autoplay can be blocked
           });
+          markConnected();
         };
 
         pc.onicecandidate = (event) => {
@@ -552,24 +591,26 @@ export default function CallPage() {
 
           switch (pc.connectionState) {
             case 'connecting':
-              setCallState('connecting');
-              break;
-            case 'connected':
-              stopCallAudio();
-              clearCallFailTimeout();
-              setCallState('connected');
-              syncTrackStates();
-
-              if (!callTimerRef.current) {
-                callTimerRef.current = setInterval(() => {
-                  setCallDuration((value) => value + 1);
-                }, 1000);
+              if (!wasConnectedRef.current) {
+                setCallState('connecting');
               }
               break;
+            case 'connected':
+              markConnected();
+              break;
             case 'disconnected':
-              setCallState('connecting');
+              if (!disconnectGraceTimeoutRef.current) {
+                disconnectGraceTimeoutRef.current = setTimeout(() => {
+                  disconnectGraceTimeoutRef.current = null;
+                  if (!mounted || pc.connectionState !== 'disconnected') return;
+                  setCallState('connecting');
+                  void requestIceRestart();
+                }, 2500);
+              }
               break;
             case 'failed':
+              clearDisconnectGraceTimeout();
+              setCallState('connecting');
               void requestIceRestart();
               if (!connectionFailTimeoutRef.current) {
                 connectionFailTimeoutRef.current = setTimeout(() => {
@@ -589,15 +630,23 @@ export default function CallPage() {
         pc.oniceconnectionstatechange = () => {
           if (!mounted) return;
 
-          if (pc.iceConnectionState === 'disconnected') {
-            setCallState('connecting');
-            setTimeout(() => {
+          if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+            markConnected();
+            return;
+          }
+
+          if (pc.iceConnectionState === 'disconnected' && !disconnectGraceTimeoutRef.current) {
+            disconnectGraceTimeoutRef.current = setTimeout(() => {
+              disconnectGraceTimeoutRef.current = null;
               if (!mounted || pc.iceConnectionState !== 'disconnected') return;
+              setCallState('connecting');
               void requestIceRestart();
-            }, 1500);
+            }, 2500);
           }
 
           if (pc.iceConnectionState === 'failed') {
+            clearDisconnectGraceTimeout();
+            setCallState('connecting');
             void requestIceRestart();
           }
         };
@@ -765,7 +814,7 @@ export default function CallPage() {
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+  }, [clearDisconnectGraceTimeout, markConnected, otherUserId, isIncoming]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
@@ -787,9 +836,12 @@ export default function CallPage() {
 
     if (!isVideoEnabledRef.current) {
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const videoStream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS });
         const [track] = videoStream.getVideoTracks();
         if (!track) return;
+        if ('contentHint' in track) {
+          track.contentHint = 'detail';
+        }
 
         stream.addTrack(track);
 
@@ -884,8 +936,6 @@ export default function CallPage() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  if (!user) return null;
-
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
       <div className="pt-safe px-4 py-2 flex items-center justify-between text-white">
@@ -914,10 +964,10 @@ export default function CallPage() {
             <div className="relative mb-4">
               <div className="absolute inset-0 w-24 h-24 rounded-full bg-primary-500/20 animate-ping" />
               <div className="relative w-24 h-24 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-3xl font-bold">
-                {user.username[0].toUpperCase()}
+                {displayInitial}
               </div>
             </div>
-            <h2 className="text-2xl font-bold">{user.username}</h2>
+            <h2 className="text-2xl font-bold">{displayName}</h2>
             <p className="text-slate-300 mt-2 animate-pulse">
               {callState === 'connecting' ? 'Connecting...' : 'Ringing...'}
             </p>
@@ -935,7 +985,7 @@ export default function CallPage() {
           {!isVideoEnabled && (
             <div className="w-full h-full bg-slate-800 flex items-center justify-center">
               <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
-                {user.username[0].toUpperCase()}
+                {displayInitial}
               </div>
             </div>
           )}
