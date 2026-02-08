@@ -101,51 +101,6 @@ function playCallingTone(): () => void {
   };
 }
 
-function playRingtone(): () => void {
-  const ctx = getAudioCtx();
-  const gain = ctx.createGain();
-  gain.gain.value = 0.12;
-  gain.connect(ctx.destination);
-
-  let stopped = false;
-  let currentOscs: OscillatorNode[] = [];
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-
-  const ring = () => {
-    if (stopped) return;
-
-    const oscs: OscillatorNode[] = [];
-    for (let i = 0; i < 2; i += 1) {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = 440 + i * 40;
-      osc.connect(gain);
-      const start = ctx.currentTime + i * 0.3;
-      osc.start(start);
-      osc.stop(start + 0.2);
-      oscs.push(osc);
-    }
-
-    currentOscs = oscs;
-    timeout = setTimeout(ring, 2500);
-  };
-
-  ring();
-
-  return () => {
-    stopped = true;
-    if (timeout) clearTimeout(timeout);
-    currentOscs.forEach((osc) => {
-      try {
-        osc.stop();
-      } catch {
-        // already stopped
-      }
-    });
-    currentOscs = [];
-  };
-}
-
 function playEndTone() {
   try {
     const ctx = getAudioCtx();
@@ -363,7 +318,10 @@ export default function CallPage() {
 
     const currentCallId = callIdRef.current;
     if (currentCallId && remoteCallId && currentCallId !== remoteCallId) {
-      return;
+      // Peer restarted signaling (e.g. page reload). Switch to the new call identity.
+      callIdRef.current = remoteCallId;
+      remoteDescriptionSetRef.current = false;
+      iceCandidateBufferRef.current = [];
     }
 
     ensureCallId(remoteCallId);
@@ -393,7 +351,7 @@ export default function CallPage() {
       await pc.setLocalDescription(answer);
       sendAnswer(otherUserId, buildSignalEnvelope({ description: answer }));
 
-      if (pc.connectionState !== 'connected') {
+      if (!wasConnectedRef.current && pc.connectionState !== 'connected') {
         stopCallAudio();
         clearRingingTimeout();
         setCallState('connecting');
@@ -664,12 +622,29 @@ export default function CallPage() {
                 // ignore
               }
             } else {
-              setCallState('ringing');
-              stopAudioRef.current = playRingtone();
+              ensureCallId(createCallId());
+              try {
+                makingOfferRef.current = true;
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                sendOffer(otherUserId, buildSignalEnvelope({ description: offer }));
+              } finally {
+                makingOfferRef.current = false;
+              }
+              setCallState('connecting');
             }
           } else {
-            setCallState('ringing');
-            stopAudioRef.current = playRingtone();
+            // Reload recovery: if no cached incoming offer exists, re-initiate signaling.
+            ensureCallId(createCallId());
+            try {
+              makingOfferRef.current = true;
+              const offer = await pc.createOffer();
+              await pc.setLocalDescription(offer);
+              sendOffer(otherUserId, buildSignalEnvelope({ description: offer }));
+            } finally {
+              makingOfferRef.current = false;
+            }
+            setCallState('connecting');
           }
         } else {
           ensureCallId(createCallId());
@@ -725,7 +700,9 @@ export default function CallPage() {
 
       stopCallAudio();
       clearRingingTimeout();
-      setCallState('connecting');
+      if (!wasConnectedRef.current) {
+        setCallState('connecting');
+      }
 
       void handleRemoteDescription(answer).catch((error) => {
         console.error('[Call] Failed to set remote answer:', error);
@@ -778,10 +755,6 @@ export default function CallPage() {
       const parsed = parseSignalData(detail.data);
       const offer = parsed.description;
       if (!offer || offer.type !== 'offer') return;
-
-      if (detail.callId && callIdRef.current && detail.callId !== callIdRef.current) {
-        return;
-      }
 
       void handleRemoteOffer(offer, detail.callId ?? parsed.callId).then(() => {
         try {
