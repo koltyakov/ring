@@ -147,7 +147,12 @@ export default function CallPage() {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const callTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectionFailTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const incomingOfferRef = useRef<IncomingCallState | null>(null);
+  const makingOfferRef = useRef(false);
+  const ignoreOfferRef = useRef(false);
+  const iceRestartingRef = useRef(false);
+  const politeRef = useRef(false);
 
   // ICE candidate buffer — holds candidates that arrive before remote description is set
   const iceCandidateBuffer = useRef<RTCIceCandidateInit[]>([]);
@@ -168,6 +173,15 @@ export default function CallPage() {
   const isIncoming = window.location.search.includes('incoming=true');
   const incomingOffer = (location.state as { incomingOffer?: IncomingCallState } | null)?.incomingOffer;
 
+  const getCurrentUserId = () => {
+    try {
+      const token = localStorage.getItem('token');
+      return token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
+    } catch {
+      return 0;
+    }
+  };
+
   // ─── Flush buffered ICE candidates once remote description is set ───
   const flushIceCandidates = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -181,6 +195,69 @@ export default function CallPage() {
       }
     }
   }, []);
+
+  const handleRemoteDescription = useCallback(async (desc: RTCSessionDescriptionInit) => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    await pc.setRemoteDescription(new RTCSessionDescription(desc));
+    remoteDescriptionSet.current = true;
+    await flushIceCandidates();
+  }, [flushIceCandidates]);
+
+  const handleRemoteOffer = useCallback(async (desc: RTCSessionDescriptionInit) => {
+    const pc = peerConnectionRef.current;
+    if (!pc) return;
+    const offer = new RTCSessionDescription(desc);
+    const offerCollision = offer.type === 'offer' && (makingOfferRef.current || pc.signalingState !== 'stable');
+    ignoreOfferRef.current = !politeRef.current && offerCollision;
+    if (ignoreOfferRef.current) {
+      console.warn('[Call] Ignoring offer due to collision');
+      return;
+    }
+
+    if (offerCollision && politeRef.current && pc.signalingState !== 'stable') {
+      try {
+        await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit);
+      } catch {
+        // Rollback can fail on some browsers; proceed with caution.
+      }
+    }
+
+    await pc.setRemoteDescription(offer);
+    remoteDescriptionSet.current = true;
+    await flushIceCandidates();
+
+    if (offer.type === 'offer') {
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      sendAnswer(otherUserId, answer);
+      if (pc.connectionState !== 'connected') {
+        setCallState('connecting');
+        stopAudioRef.current?.();
+        stopAudioRef.current = null;
+        if (ringingTimeoutRef.current) {
+          clearTimeout(ringingTimeoutRef.current);
+          ringingTimeoutRef.current = null;
+        }
+      }
+    }
+  }, [flushIceCandidates, otherUserId, sendAnswer]);
+
+  const requestIceRestart = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc || iceRestartingRef.current) return;
+    if (pc.signalingState !== 'stable') return;
+    iceRestartingRef.current = true;
+    try {
+      const offer = await pc.createOffer({ iceRestart: true });
+      await pc.setLocalDescription(offer);
+      sendOffer(otherUserId, offer);
+    } catch (err) {
+      console.warn('[Call] ICE restart failed:', err);
+    } finally {
+      iceRestartingRef.current = false;
+    }
+  }, [otherUserId, sendOffer]);
 
   // ─── Cleanup everything ───
   const cleanup = useCallback(() => {
@@ -201,6 +278,11 @@ export default function CallPage() {
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
       callTimerRef.current = null;
+    }
+
+    if (connectionFailTimeoutRef.current) {
+      clearTimeout(connectionFailTimeoutRef.current);
+      connectionFailTimeoutRef.current = null;
     }
 
     // Stop all local media tracks (camera, mic)
@@ -252,6 +334,10 @@ export default function CallPage() {
     cleanedUpRef.current = false;
     remoteDescriptionSet.current = false;
     iceCandidateBuffer.current = [];
+    makingOfferRef.current = false;
+    ignoreOfferRef.current = false;
+    iceRestartingRef.current = false;
+    politeRef.current = getCurrentUserId() < otherUserId;
 
     // Capture any incoming offer before clearing store state
     let sessionOffer: IncomingCallState | null = null;
@@ -326,6 +412,10 @@ export default function CallPage() {
               // Stop ringing/calling sounds
               stopAudioRef.current?.();
               stopAudioRef.current = null;
+              if (connectionFailTimeoutRef.current) {
+                clearTimeout(connectionFailTimeoutRef.current);
+                connectionFailTimeoutRef.current = null;
+              }
               // Start call timer
               if (!callTimerRef.current) {
                 callTimerRef.current = setInterval(() => {
@@ -337,11 +427,20 @@ export default function CallPage() {
               console.warn('[Call] Peer disconnected, waiting for recovery…');
               break;
             case 'failed':
-              console.error('[Call] Peer connection failed');
-              playEndTone();
-              setCallState('ended');
-              cleanup();
-              setTimeout(() => { if (mounted) navigate(-1); }, 1200);
+              console.warn('[Call] Peer connection failed, attempting recovery');
+              requestIceRestart();
+              if (!connectionFailTimeoutRef.current) {
+                connectionFailTimeoutRef.current = setTimeout(() => {
+                  if (!mounted) return;
+                  if (pc.connectionState === 'failed') {
+                    console.error('[Call] Peer connection failed to recover');
+                    playEndTone();
+                    setCallState('ended');
+                    cleanup();
+                    setTimeout(() => { if (mounted) navigate(-1); }, 1200);
+                  }
+                }, 8000);
+              }
               break;
             case 'closed':
               break;
@@ -358,13 +457,13 @@ export default function CallPage() {
               if (!mounted) return;
               if (pc.iceConnectionState === 'disconnected') {
                 console.warn('[Call] ICE disconnected, attempting restart');
-                pc.restartIce();
+                requestIceRestart();
               }
             }, 1500);
           }
           if (pc.iceConnectionState === 'failed') {
             console.warn('[Call] ICE failed, attempting restart');
-            pc.restartIce();
+            requestIceRestart();
           }
         };
 
@@ -376,13 +475,7 @@ export default function CallPage() {
           if (stored?.data) {
             console.log('[Call] Using stored offer from incomingCall state');
             setCallState('connecting');
-            await pc.setRemoteDescription(new RTCSessionDescription(stored.data as RTCSessionDescriptionInit));
-            remoteDescriptionSet.current = true;
-            await flushIceCandidates();
-
-            const answer = await pc.createAnswer();
-            await pc.setLocalDescription(answer);
-            sendAnswer(otherUserId, answer);
+            await handleRemoteOffer(stored.data as RTCSessionDescriptionInit);
             try {
               sessionStorage.removeItem('ring.incomingOffer');
             } catch {
@@ -396,9 +489,14 @@ export default function CallPage() {
           }
         } else {
           // ── Outgoing call: create and send offer ──
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          sendOffer(otherUserId, offer);
+          try {
+            makingOfferRef.current = true;
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            sendOffer(otherUserId, offer);
+          } finally {
+            makingOfferRef.current = false;
+          }
           setCallState('ringing');
 
           // Play calling tone while waiting for the other party
@@ -450,11 +548,7 @@ export default function CallPage() {
         ringingTimeoutRef.current = null;
       }
       setCallState('connecting');
-      pc.setRemoteDescription(new RTCSessionDescription(data))
-        .then(() => {
-          remoteDescriptionSet.current = true;
-          return flushIceCandidates();
-        })
+      handleRemoteDescription(data as RTCSessionDescriptionInit)
         .catch(err => console.error('[Call] Failed to set remote answer:', err));
     };
 
@@ -494,25 +588,16 @@ export default function CallPage() {
       if (from !== otherUserId || !data) return;
       const pc = peerConnectionRef.current;
       if (!pc) return;
-      if (remoteDescriptionSet.current) return;
 
-      pc.setRemoteDescription(new RTCSessionDescription(data))
-        .then(async () => {
-          remoteDescriptionSet.current = true;
-          await flushIceCandidates();
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          sendAnswer(otherUserId, answer);
-          stopAudioRef.current?.();
-          stopAudioRef.current = null;
-          setCallState('connecting');
+      handleRemoteOffer(data as RTCSessionDescriptionInit)
+        .then(() => {
           try {
             sessionStorage.removeItem('ring.incomingOffer');
           } catch {
             // Ignore storage errors
           }
         })
-        .catch(err => console.error('[Call] Failed to handle late offer:', err));
+        .catch(err => console.error('[Call] Failed to handle offer:', err));
     };
 
     window.addEventListener('call-answered', handleAnswer);

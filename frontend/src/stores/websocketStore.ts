@@ -145,7 +145,7 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
 
     socket.send(JSON.stringify({
       type: 'call_ice',
-      payload: { to, data: candidate }
+      payload: { to, data: candidate.toJSON() }
     }));
   },
 
