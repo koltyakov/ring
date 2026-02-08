@@ -232,6 +232,7 @@ export default function CallPage() {
   const connectionFailTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ringingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const disconnectGraceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const offerRetryIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const stopAudioRef = useRef<(() => void) | null>(null);
 
   const makingOfferRef = useRef(false);
@@ -271,6 +272,12 @@ export default function CallPage() {
     if (!disconnectGraceTimeoutRef.current) return;
     clearTimeout(disconnectGraceTimeoutRef.current);
     disconnectGraceTimeoutRef.current = null;
+  }, []);
+
+  const clearOfferRetryInterval = useCallback(() => {
+    if (!offerRetryIntervalRef.current) return;
+    clearInterval(offerRetryIntervalRef.current);
+    offerRetryIntervalRef.current = null;
   }, []);
 
   const ensureCallId = useCallback((preferred?: string | null): string => {
@@ -324,6 +331,7 @@ export default function CallPage() {
       remoteDescriptionSetRef.current = false;
       iceCandidateBufferRef.current = [];
     }
+    clearOfferRetryInterval();
 
     ensureCallId(remoteCallId);
 
@@ -358,7 +366,7 @@ export default function CallPage() {
         setCallState('connecting');
       }
     }
-  }, [buildSignalEnvelope, clearRingingTimeout, ensureCallId, flushIceCandidates, otherUserId, sendAnswer, stopCallAudio]);
+  }, [buildSignalEnvelope, clearOfferRetryInterval, clearRingingTimeout, ensureCallId, flushIceCandidates, otherUserId, sendAnswer, stopCallAudio]);
 
   const requestIceRestart = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -376,6 +384,34 @@ export default function CallPage() {
     }
   }, [buildSignalEnvelope, otherUserId, sendOffer]);
 
+  const sendNegotiationOffer = useCallback(async () => {
+    const pc = peerConnectionRef.current;
+    if (!pc || makingOfferRef.current || pc.signalingState !== 'stable') return;
+
+    try {
+      makingOfferRef.current = true;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      sendOffer(otherUserId, buildSignalEnvelope({ description: offer }));
+    } catch (error) {
+      console.warn('[Call] Failed to send offer:', error);
+    } finally {
+      makingOfferRef.current = false;
+    }
+  }, [buildSignalEnvelope, otherUserId, sendOffer]);
+
+  const startOfferRetryLoop = useCallback(() => {
+    if (offerRetryIntervalRef.current) return;
+    offerRetryIntervalRef.current = setInterval(() => {
+      const pc = peerConnectionRef.current;
+      if (!pc || pc.connectionState === 'connected') {
+        clearOfferRetryInterval();
+        return;
+      }
+      void sendNegotiationOffer();
+    }, 3000);
+  }, [clearOfferRetryInterval, sendNegotiationOffer]);
+
   const cleanup = useCallback(() => {
     if (cleanedUpRef.current) return;
     cleanedUpRef.current = true;
@@ -384,6 +420,7 @@ export default function CallPage() {
     clearRingingTimeout();
     clearCallFailTimeout();
     clearDisconnectGraceTimeout();
+    clearOfferRetryInterval();
 
     if (callTimerRef.current) {
       clearInterval(callTimerRef.current);
@@ -418,7 +455,7 @@ export default function CallPage() {
     wasConnectedRef.current = false;
     setIsVideoEnabled(false);
     isVideoEnabledRef.current = false;
-  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearRingingTimeout, stopCallAudio]);
+  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearOfferRetryInterval, clearRingingTimeout, stopCallAudio]);
 
   const syncTrackStates = useCallback(() => {
     const stream = localStreamRef.current;
@@ -446,6 +483,7 @@ export default function CallPage() {
     clearRingingTimeout();
     clearCallFailTimeout();
     clearDisconnectGraceTimeout();
+    clearOfferRetryInterval();
     setCallState('connected');
     syncTrackStates();
     wasConnectedRef.current = true;
@@ -455,7 +493,7 @@ export default function CallPage() {
         setCallDuration((value) => value + 1);
       }, 1000);
     }
-  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearRingingTimeout, stopCallAudio, syncTrackStates]);
+  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearOfferRetryInterval, clearRingingTimeout, stopCallAudio, syncTrackStates]);
 
   const finishAndNavigateBack = useCallback((delayMs: number) => {
     setTimeout(() => {
@@ -490,6 +528,7 @@ export default function CallPage() {
     callIdRef.current = incomingOffer?.callId ?? null;
     wasConnectedRef.current = false;
     clearDisconnectGraceTimeout();
+    clearOfferRetryInterval();
     politeRef.current = getCurrentUserId() < otherUserId;
 
     let mounted = true;
@@ -633,39 +672,21 @@ export default function CallPage() {
               }
             } else {
               ensureCallId(createCallId());
-              try {
-                makingOfferRef.current = true;
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                sendOffer(otherUserId, buildSignalEnvelope({ description: offer }));
-              } finally {
-                makingOfferRef.current = false;
-              }
+              await sendNegotiationOffer();
+              startOfferRetryLoop();
               setCallState('connecting');
             }
           } else {
             // Reload recovery: if no cached incoming offer exists, re-initiate signaling.
             ensureCallId(createCallId());
-            try {
-              makingOfferRef.current = true;
-              const offer = await pc.createOffer();
-              await pc.setLocalDescription(offer);
-              sendOffer(otherUserId, buildSignalEnvelope({ description: offer }));
-            } finally {
-              makingOfferRef.current = false;
-            }
+            await sendNegotiationOffer();
+            startOfferRetryLoop();
             setCallState('connecting');
           }
         } else {
           ensureCallId(createCallId());
-          try {
-            makingOfferRef.current = true;
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            sendOffer(otherUserId, buildSignalEnvelope({ description: offer }));
-          } finally {
-            makingOfferRef.current = false;
-          }
+          await sendNegotiationOffer();
+          startOfferRetryLoop();
 
           setCallState('ringing');
           stopAudioRef.current = playCallingTone();
@@ -710,6 +731,7 @@ export default function CallPage() {
 
       stopCallAudio();
       clearRingingTimeout();
+      clearOfferRetryInterval();
       if (!wasConnectedRef.current) {
         setCallState('connecting');
       }
@@ -797,7 +819,7 @@ export default function CallPage() {
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearDisconnectGraceTimeout, markConnected, otherUserId, isIncoming]);
+  }, [clearDisconnectGraceTimeout, clearOfferRetryInterval, markConnected, otherUserId, isIncoming, sendNegotiationOffer, startOfferRetryLoop]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
