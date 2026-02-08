@@ -99,6 +99,7 @@ func SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/users/update-key", authMiddleware(handleUpdatePublicKey))
 	mux.HandleFunc("/api/messages", authMiddleware(handleMessages))
 	mux.HandleFunc("/api/messages/", authMiddleware(handleMessages))
+	mux.HandleFunc("/api/messages/clear", authMiddleware(handleClearMessages))
 	mux.HandleFunc("/api/ws", authMiddleware(handleWebSocket))
 	mux.HandleFunc("/api/invites", authMiddleware(handleCreateInvite))
 }
