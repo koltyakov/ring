@@ -47,6 +47,15 @@ interface IncomingCallDetail {
   callId?: string | null
 }
 
+interface CallMediaPreferences {
+  muted: boolean
+  videoEnabled: boolean
+}
+
+interface CallResumeState {
+  connectedAt: number
+}
+
 let audioCtx: AudioContext | null = null;
 
 function getAudioCtx() {
@@ -138,6 +147,73 @@ function createCallId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function callMediaPrefsKey(otherUserId: number): string {
+  return `ring.callMediaPrefs:${otherUserId}`;
+}
+
+function readCallMediaPrefs(otherUserId: number): CallMediaPreferences {
+  if (!Number.isFinite(otherUserId)) {
+    return { muted: false, videoEnabled: false };
+  }
+
+  try {
+    const raw = sessionStorage.getItem(callMediaPrefsKey(otherUserId));
+    if (!raw) return { muted: false, videoEnabled: false };
+    const parsed = JSON.parse(raw) as Partial<CallMediaPreferences>;
+    return {
+      muted: parsed.muted === true,
+      videoEnabled: parsed.videoEnabled === true,
+    };
+  } catch {
+    return { muted: false, videoEnabled: false };
+  }
+}
+
+function writeCallMediaPrefs(otherUserId: number, prefs: CallMediaPreferences) {
+  if (!Number.isFinite(otherUserId)) return;
+  try {
+    sessionStorage.setItem(callMediaPrefsKey(otherUserId), JSON.stringify(prefs));
+  } catch {
+    // ignore
+  }
+}
+
+function callResumeKey(otherUserId: number): string {
+  return `ring.callResume:${otherUserId}`;
+}
+
+function writeCallResumeState(otherUserId: number) {
+  if (!Number.isFinite(otherUserId)) return;
+  const value: CallResumeState = { connectedAt: Date.now() };
+  try {
+    sessionStorage.setItem(callResumeKey(otherUserId), JSON.stringify(value));
+  } catch {
+    // ignore
+  }
+}
+
+function readRecentCallResumeState(otherUserId: number, maxAgeMs = 120_000): boolean {
+  if (!Number.isFinite(otherUserId)) return false;
+  try {
+    const raw = sessionStorage.getItem(callResumeKey(otherUserId));
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as Partial<CallResumeState>;
+    if (typeof parsed.connectedAt !== 'number') return false;
+    return (Date.now() - parsed.connectedAt) <= maxAgeMs;
+  } catch {
+    return false;
+  }
+}
+
+function clearCallResumeState(otherUserId: number) {
+  if (!Number.isFinite(otherUserId)) return;
+  try {
+    sessionStorage.removeItem(callResumeKey(otherUserId));
+  } catch {
+    // ignore
+  }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -220,7 +296,6 @@ export default function CallPage() {
   const [callState, setCallState] = useState<CallState>('connecting');
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [isRemotePortrait, setIsRemotePortrait] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
 
@@ -279,6 +354,14 @@ export default function CallPage() {
     clearInterval(offerRetryIntervalRef.current);
     offerRetryIntervalRef.current = null;
   }, []);
+
+  const persistCallMediaPrefs = useCallback((next: Partial<CallMediaPreferences>) => {
+    const resolved: CallMediaPreferences = {
+      muted: next.muted ?? isMutedRef.current,
+      videoEnabled: next.videoEnabled ?? isVideoEnabledRef.current,
+    };
+    writeCallMediaPrefs(otherUserId, resolved);
+  }, [otherUserId]);
 
   const ensureCallId = useCallback((preferred?: string | null): string => {
     if (callIdRef.current) return callIdRef.current;
@@ -386,7 +469,14 @@ export default function CallPage() {
 
   const sendNegotiationOffer = useCallback(async () => {
     const pc = peerConnectionRef.current;
-    if (!pc || makingOfferRef.current || pc.signalingState !== 'stable') return;
+    if (!pc || makingOfferRef.current) return;
+
+    if (pc.signalingState === 'have-local-offer' && pc.localDescription?.type === 'offer') {
+      sendOffer(otherUserId, buildSignalEnvelope({ description: pc.localDescription }));
+      return;
+    }
+
+    if (pc.signalingState !== 'stable') return;
 
     try {
       makingOfferRef.current = true;
@@ -487,13 +577,14 @@ export default function CallPage() {
     setCallState('connected');
     syncTrackStates();
     wasConnectedRef.current = true;
+    writeCallResumeState(otherUserId);
 
     if (!callTimerRef.current) {
       callTimerRef.current = setInterval(() => {
         setCallDuration((value) => value + 1);
       }, 1000);
     }
-  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearOfferRetryInterval, clearRingingTimeout, stopCallAudio, syncTrackStates]);
+  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearOfferRetryInterval, clearRingingTimeout, otherUserId, stopCallAudio, syncTrackStates]);
 
   const finishAndNavigateBack = useCallback((delayMs: number) => {
     setTimeout(() => {
@@ -502,6 +593,7 @@ export default function CallPage() {
   }, [navigate]);
 
   const handleEndCall = useCallback(() => {
+    clearCallResumeState(otherUserId);
     endCall(otherUserId);
     playEndTone();
     cleanup();
@@ -527,6 +619,11 @@ export default function CallPage() {
     iceRestartingRef.current = false;
     callIdRef.current = incomingOffer?.callId ?? null;
     wasConnectedRef.current = false;
+    const mediaPrefs = readCallMediaPrefs(otherUserId);
+    isMutedRef.current = mediaPrefs.muted;
+    isVideoEnabledRef.current = mediaPrefs.videoEnabled;
+    setIsMuted(mediaPrefs.muted);
+    setIsVideoEnabled(mediaPrefs.videoEnabled);
     clearDisconnectGraceTimeout();
     clearOfferRetryInterval();
     politeRef.current = getCurrentUserId() < otherUserId;
@@ -545,14 +642,32 @@ export default function CallPage() {
     }
 
     const initialIncomingOffer = incomingOffer ?? useWebSocketStore.getState().incomingCall ?? sessionOffer;
+    const shouldResumeConnectedCall = readRecentCallResumeState(otherUserId);
     clearIncomingCall();
 
     const initializeCall = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: false,
-          audio: true,
-        });
+        let stream: MediaStream;
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: isVideoEnabledRef.current ? VIDEO_CONSTRAINTS : false,
+            audio: true,
+          });
+        } catch (error) {
+          if (!isVideoEnabledRef.current) {
+            throw error;
+          }
+
+          // Fallback to audio-only when persisted video cannot be restored.
+          isVideoEnabledRef.current = false;
+          setIsVideoEnabled(false);
+          persistCallMediaPrefs({ videoEnabled: false });
+
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: false,
+            audio: true,
+          });
+        }
 
         if (!mounted) {
           stream.getTracks().forEach((track) => track.stop());
@@ -567,6 +682,11 @@ export default function CallPage() {
 
         stream.getAudioTracks().forEach((track) => {
           track.enabled = !isMutedRef.current;
+        });
+        stream.getVideoTracks().forEach((track) => {
+          if ('contentHint' in track) {
+            track.contentHint = 'detail';
+          }
         });
 
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -622,6 +742,7 @@ export default function CallPage() {
               if (!connectionFailTimeoutRef.current) {
                 connectionFailTimeoutRef.current = setTimeout(() => {
                   if (!mounted || pc.connectionState !== 'failed') return;
+                  clearCallResumeState(otherUserId);
                   playEndTone();
                   setCallState('ended');
                   cleanup();
@@ -688,8 +809,12 @@ export default function CallPage() {
           await sendNegotiationOffer();
           startOfferRetryLoop();
 
-          setCallState('ringing');
-          stopAudioRef.current = playCallingTone();
+          if (shouldResumeConnectedCall) {
+            setCallState('connecting');
+          } else {
+            setCallState('ringing');
+            stopAudioRef.current = playCallingTone();
+          }
           ringingTimeoutRef.current = setTimeout(() => {
             if (!mounted) return;
             if (peerConnectionRef.current?.connectionState !== 'connected') {
@@ -766,6 +891,7 @@ export default function CallPage() {
       const detail = (event as CustomEvent<{ from: number }>).detail;
       if (!detail || detail.from !== otherUserId || !mounted) return;
 
+      clearCallResumeState(otherUserId);
       playEndTone();
       setCallState('ended');
       cleanup();
@@ -819,20 +945,21 @@ export default function CallPage() {
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearDisconnectGraceTimeout, clearOfferRetryInterval, markConnected, otherUserId, isIncoming, sendNegotiationOffer, startOfferRetryLoop]);
+  }, [clearDisconnectGraceTimeout, clearOfferRetryInterval, markConnected, otherUserId, isIncoming, persistCallMediaPrefs, sendNegotiationOffer, startOfferRetryLoop]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
-    if (!stream) return;
-
     const nextMuted = !isMutedRef.current;
-    stream.getAudioTracks().forEach((track) => {
-      track.enabled = !nextMuted;
-    });
+    if (stream) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = !nextMuted;
+      });
+    }
 
     isMutedRef.current = nextMuted;
     setIsMuted(nextMuted);
-  }, []);
+    persistCallMediaPrefs({ muted: nextMuted });
+  }, [persistCallMediaPrefs]);
 
   const toggleVideo = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -864,6 +991,7 @@ export default function CallPage() {
 
         isVideoEnabledRef.current = true;
         setIsVideoEnabled(true);
+        persistCallMediaPrefs({ videoEnabled: true });
       } catch (error) {
         console.warn('[Call] Failed to enable video:', error);
       } finally {
@@ -876,6 +1004,7 @@ export default function CallPage() {
     if (tracks.length === 0) {
       isVideoEnabledRef.current = false;
       setIsVideoEnabled(false);
+      persistCallMediaPrefs({ videoEnabled: false });
       return;
     }
 
@@ -906,34 +1035,8 @@ export default function CallPage() {
 
     isVideoEnabledRef.current = false;
     setIsVideoEnabled(false);
-  }, [buildSignalEnvelope, otherUserId, sendOffer]);
-
-  const toggleSpeaker = useCallback(async () => {
-    const remoteVideo = remoteVideoRef.current;
-    if (!remoteVideo) return;
-
-    const nextSpeakerOn = !isSpeakerOn;
-
-    if ('setSinkId' in remoteVideo && typeof (remoteVideo as HTMLMediaElement & { setSinkId?: (id: string) => Promise<void> }).setSinkId === 'function') {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const outputs = devices.filter((device) => device.kind === 'audiooutput');
-
-        if (outputs.length > 0) {
-          const secondary = outputs[1]?.deviceId;
-          const sinkId = nextSpeakerOn ? 'default' : (secondary ?? 'default');
-          await (remoteVideo as HTMLMediaElement & { setSinkId: (id: string) => Promise<void> }).setSinkId(sinkId);
-          setIsSpeakerOn(nextSpeakerOn);
-          return;
-        }
-      } catch (error) {
-        console.warn('[Call] setSinkId failed:', error);
-      }
-    }
-
-    remoteVideo.volume = nextSpeakerOn ? 1 : 0.5;
-    setIsSpeakerOn(nextSpeakerOn);
-  }, [isSpeakerOn]);
+    persistCallMediaPrefs({ videoEnabled: false });
+  }, [buildSignalEnvelope, otherUserId, persistCallMediaPrefs, sendOffer]);
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -1046,16 +1149,6 @@ export default function CallPage() {
             </svg>
           </button>
 
-          <button
-            onClick={() => void toggleSpeaker()}
-            className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors sm:hidden ${
-              isSpeakerOn ? 'bg-primary-600 text-white' : 'bg-slate-700 text-white'
-            }`}
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-            </svg>
-          </button>
         </div>
       </div>
     </div>
