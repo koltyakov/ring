@@ -139,7 +139,7 @@ export default function CallPage() {
   const [callState, setCallState] = useState<'connecting' | 'ringing' | 'connected' | 'ended'>('connecting');
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
-  const [isSpeakerOn, setIsSpeakerOn] = useState(false);
+  const [isSpeakerOn, setIsSpeakerOn] = useState(true); // Default to speaker on mobile
   const [callDuration, setCallDuration] = useState(0);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -166,6 +166,9 @@ export default function CallPage() {
 
   // Prevent double-cleanup
   const cleanedUpRef = useRef(false);
+
+  // Track mute state in ref for stable access in callbacks
+  const isMutedRef = useRef(false);
 
   const clearIncomingCall = useWebSocketStore(state => state.clearIncomingCall);
 
@@ -327,6 +330,19 @@ export default function CallPage() {
     setTimeout(() => navigate(-1), 600);
   }, [endCall, otherUserId, cleanup, navigate, clearIncomingCall]);
 
+  // ─── Sync track enabled state with component state ───
+  const syncTrackStates = () => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    
+    // Sync audio tracks with mute state
+    stream.getAudioTracks().forEach(track => {
+      track.enabled = !isMutedRef.current;
+    });
+    
+    // Video tracks are managed differently (added/removed), so no sync needed
+  };
+
   // ─── Main call setup effect ───
   useEffect(() => {
     if (!user) return;
@@ -373,6 +389,11 @@ export default function CallPage() {
           localVideoRef.current.srcObject = stream;
         }
 
+        // Apply initial mute/video state to tracks
+        stream.getAudioTracks().forEach(track => {
+          track.enabled = !isMutedRef.current;
+        });
+
         // 2. Create peer connection
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peerConnectionRef.current = pc;
@@ -416,6 +437,8 @@ export default function CallPage() {
                 clearTimeout(connectionFailTimeoutRef.current);
                 connectionFailTimeoutRef.current = null;
               }
+              // Sync track states after reconnection
+              syncTrackStates();
               // Start call timer
               if (!callTimerRef.current) {
                 callTimerRef.current = setInterval(() => {
@@ -622,11 +645,15 @@ export default function CallPage() {
 
   // ─── Toggle controls ───
   const toggleMute = () => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    
     const nextMuted = !isMuted;
-    localStreamRef.current?.getAudioTracks().forEach(track => {
+    stream.getAudioTracks().forEach(track => {
       track.enabled = !nextMuted;
     });
     setIsMuted(nextMuted);
+    isMutedRef.current = nextMuted;
   };
 
   const toggleVideo = async () => {
@@ -688,6 +715,42 @@ export default function CallPage() {
     }
 
     setIsVideoEnabled(false);
+  };
+
+  const toggleSpeaker = async () => {
+    const video = remoteVideoRef.current;
+    if (!video) return;
+
+    try {
+      const nextSpeakerOn = !isSpeakerOn;
+      
+      // Try using setSinkId if available (mainly Android Chrome)
+      if ('setSinkId' in video && typeof (video as any).setSinkId === 'function') {
+        try {
+          // Get available audio output devices
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
+          
+          if (audioOutputs.length > 0) {
+            // Switch between default (speaker) and first available device
+            const deviceId = nextSpeakerOn ? 'default' : (audioOutputs[1]?.deviceId || 'default');
+            await (video as any).setSinkId(deviceId);
+            setIsSpeakerOn(nextSpeakerOn);
+            return;
+          }
+        } catch (err) {
+          console.warn('[Call] setSinkId not fully supported:', err);
+        }
+      }
+      
+      // Fallback: adjust volume (not a true speaker toggle, but provides feedback)
+      // Note: Mobile browsers often ignore this for media elements
+      video.volume = nextSpeakerOn ? 1.0 : 0.5;
+      setIsSpeakerOn(nextSpeakerOn);
+      
+    } catch (err) {
+      console.warn('[Call] Failed to toggle speaker:', err);
+    }
   };
 
   const formatDuration = (seconds: number) => {
@@ -813,7 +876,7 @@ export default function CallPage() {
 
           {/* Speaker (mobile only) */}
           <button
-            onClick={() => setIsSpeakerOn(!isSpeakerOn)}
+            onClick={toggleSpeaker}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors sm:hidden ${
               isSpeakerOn ? 'bg-primary-600 text-white' : 'bg-slate-700 text-white'
             }`}
