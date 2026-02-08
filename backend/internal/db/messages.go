@@ -90,3 +90,11 @@ func MarkMessagesAsRead(senderID, receiverID int64) error {
 	)
 	return err
 }
+
+func DeleteMessagesBetween(userID1, userID2 int64) error {
+	_, err := DB.Exec(
+		"DELETE FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)",
+		userID1, userID2, userID2, userID1,
+	)
+	return err
+}

@@ -107,6 +107,12 @@ export const api = {
       body: JSON.stringify({ receiver_id: receiverId, type, content, nonce }),
     }),
 
+  clearMessages: (userId: number) =>
+    fetchWithAuth('/api/messages/clear', {
+      method: 'POST',
+      body: JSON.stringify({ other_user_id: userId }),
+    }),
+
   // Invites (admin)
   createInvite: (): Promise<{ code: string }> =>
     fetchWithAuth('/api/invites', {

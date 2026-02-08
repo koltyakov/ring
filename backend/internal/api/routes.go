@@ -16,8 +16,9 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
+	ReadBufferSize:   1024,
+	WriteBufferSize:  1024,
+	HandshakeTimeout: 10 * time.Second,
 	CheckOrigin: func(r *http.Request) bool {
 		return true // Allow all origins in development
 	},
@@ -470,6 +471,40 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, msg)
+}
+
+func handleClearMessages(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	userID := getUserID(r)
+
+	var req struct {
+		OtherUserID int64 `json:"other_user_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		errorResponse(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+
+	if err := db.DeleteMessagesBetween(userID, req.OtherUserID); err != nil {
+		log.Printf("Failed to clear messages: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "failed to clear messages")
+		return
+	}
+
+	// Notify the other user via WebSocket
+	hub := ws.GetHub()
+	hub.SendMessage(req.OtherUserID, ws.Message{
+		Type:      "clear_messages",
+		From:      userID,
+		Timestamp: time.Now().Unix(),
+	})
+
+	log.Printf("Cleared messages between user %d and %d", userID, req.OtherUserID)
+	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {

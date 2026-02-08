@@ -57,6 +57,8 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
     const host = isDev ? 'localhost:8080' : window.location.host;
     const wsUrl = `${protocol}//${host}/api/ws?token=${encodeURIComponent(token)}`;
     
+    console.log(`[WebSocket] Connecting to: ${wsUrl.replace(/token=[^&]+/, 'token=***')}`);
+    
     const socket = new WebSocket(wsUrl);
     _currentSocket = socket;
 
@@ -66,9 +68,9 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
       set({ isConnected: true, socket });
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (_currentSocket !== socket) return; // stale socket closing, ignore
-      console.log('WebSocket disconnected');
+      console.log(`[WebSocket] Disconnected - Code: ${event.code}, Reason: ${event.reason || 'none'}, Clean: ${event.wasClean}`);
       _currentSocket = null;
       set({ isConnected: false, socket: null });
       // Auto-reconnect
@@ -296,6 +298,11 @@ function handleWebSocketMessage(message: any) {
     case 'read_receipt':
       console.log('[WebSocket] Read receipt from user:', message.from);
       useMessagesStore.getState().markMessagesAsRead(message.from);
+      break;
+
+    case 'clear_messages':
+      console.log('[WebSocket] Clear messages from user:', message.from);
+      useMessagesStore.getState().clearMessagesLocal(message.from);
       break;
   }
 }

@@ -18,6 +18,8 @@ interface MessagesState {
   addMessage: (message: Message) => void
   setTyping: (userId: number, typing: boolean) => void
   markMessagesAsRead: (userId: number) => void
+  clearMessages: (userId: number) => Promise<void>
+  clearMessagesLocal: (userId: number) => void
   getMessagesForUser: (userId: number) => DecryptedMessage[]
   getUnreadCount: (userId: number) => number
   getTotalUnreadCount: () => number
@@ -204,6 +206,29 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const currentCount = newUnreadCounts.get(userId) || 0;
       newUnreadCounts.set(userId, currentCount + 1);
       return { unreadCounts: newUnreadCounts };
+    });
+  },
+
+  clearMessages: async (userId: number) => {
+    try {
+      await api.clearMessages(userId);
+      // Clear local messages
+      set((state) => {
+        const newMessages = new Map(state.messages);
+        newMessages.set(userId, []);
+        return { messages: newMessages };
+      });
+    } catch (error) {
+      console.error('Failed to clear messages:', error);
+      throw error;
+    }
+  },
+
+  clearMessagesLocal: (userId: number) => {
+    set((state) => {
+      const newMessages = new Map(state.messages);
+      newMessages.set(userId, []);
+      return { messages: newMessages };
     });
   },
 }));

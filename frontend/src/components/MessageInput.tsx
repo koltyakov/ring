@@ -26,9 +26,27 @@ export default function MessageInput({ userId }: MessageInputProps) {
     }, 3000);
   }, [userId, sendTyping]);
 
+  const clearMessages = useMessagesStore(state => state.clearMessages);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!message.trim() || isSending) return;
+
+    // Check for /clear command
+    if (message.trim() === '/clear') {
+      setIsSending(true);
+      setError(null);
+      try {
+        await clearMessages(userId);
+        setMessage('');
+      } catch (err) {
+        console.error('Failed to clear messages:', err);
+        setError('Failed to clear. Tap to retry.');
+      } finally {
+        setIsSending(false);
+      }
+      return;
+    }
 
     setIsSending(true);
     setError(null);

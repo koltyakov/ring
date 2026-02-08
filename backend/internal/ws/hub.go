@@ -47,7 +47,7 @@ type Client struct {
 }
 
 type WSMessage struct {
-	Type      string          `json:"type"` // message, typing, presence, call_offer, call_answer, call_ice, call_end
+	Type      string          `json:"type"` // message, typing, presence, call_offer, call_answer, call_ice, call_end, clear_messages
 	Payload   json.RawMessage `json:"payload"`
 	Timestamp int64           `json:"timestamp"`
 }

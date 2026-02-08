@@ -169,6 +169,7 @@ export default function CallPage() {
 
   // Track mute state in ref for stable access in callbacks
   const isMutedRef = useRef(false);
+  const isVideoEnabledRef = useRef(false);
 
   const clearIncomingCall = useWebSocketStore(state => state.clearIncomingCall);
 
@@ -296,6 +297,11 @@ export default function CallPage() {
       localStreamRef.current = null;
     }
 
+    // Reset video state since tracks are stopped
+    setIsVideoEnabled(false);
+    isVideoEnabledRef.current = false;
+    isVideoEnabledRef.current = false;
+
     // Detach video elements
     if (localVideoRef.current) {
       localVideoRef.current.srcObject = null;
@@ -340,7 +346,14 @@ export default function CallPage() {
       track.enabled = !isMutedRef.current;
     });
     
-    // Video tracks are managed differently (added/removed), so no sync needed
+    // Sync video state - check if we have video tracks matching state
+    const videoTracks = stream.getVideoTracks();
+    const hasVideo = videoTracks.length > 0;
+    if (hasVideo !== isVideoEnabledRef.current) {
+      // State mismatch - update UI state to match reality
+      setIsVideoEnabled(hasVideo);
+      isVideoEnabledRef.current = hasVideo;
+    }
   };
 
   // ─── Main call setup effect ───
@@ -678,6 +691,7 @@ export default function CallPage() {
           localVideoRef.current.srcObject = stream;
         }
         setIsVideoEnabled(true);
+        isVideoEnabledRef.current = true;
       } catch (err) {
         console.warn('[Call] Failed to enable video:', err);
       } finally {
@@ -689,6 +703,7 @@ export default function CallPage() {
     const tracks = stream.getVideoTracks();
     if (tracks.length === 0) {
       setIsVideoEnabled(false);
+      isVideoEnabledRef.current = false;
       return;
     }
 
@@ -715,6 +730,7 @@ export default function CallPage() {
     }
 
     setIsVideoEnabled(false);
+    isVideoEnabledRef.current = false;
   };
 
   const toggleSpeaker = async () => {
