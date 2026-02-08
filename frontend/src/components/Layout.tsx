@@ -12,6 +12,7 @@ interface LayoutProps {
 interface IncomingCallData {
   from: number
   data: unknown
+  callId?: string | null
 }
 
 export default function Layout({ children }: LayoutProps) {
@@ -102,8 +103,8 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     const handleIncomingCall = (e: CustomEvent) => {
       if (location.pathname.startsWith('/call/')) return;
-      const { from, data } = e.detail;
-      setPendingCall({ from, data });
+      const { from, data, callId } = e.detail as { from: number; data: unknown; callId?: string | null };
+      setPendingCall({ from, data, callId });
     };
 
     window.addEventListener('incoming-call', handleIncomingCall as EventListener);
