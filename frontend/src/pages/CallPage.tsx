@@ -138,7 +138,7 @@ export default function CallPage() {
 
   const [callState, setCallState] = useState<'connecting' | 'ringing' | 'connected' | 'ended'>('connecting');
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
 
@@ -359,7 +359,7 @@ export default function CallPage() {
       try {
         // 1. Get local media
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: false,
           audio: true,
         });
 
@@ -629,11 +629,65 @@ export default function CallPage() {
     setIsMuted(nextMuted);
   };
 
-  const toggleVideo = () => {
-    localStreamRef.current?.getVideoTracks().forEach(track => {
-      track.enabled = !track.enabled;
-    });
-    setIsVideoEnabled(!isVideoEnabled);
+  const toggleVideo = async () => {
+    const pc = peerConnectionRef.current;
+    const stream = localStreamRef.current;
+    if (!stream) return;
+
+    if (!isVideoEnabled) {
+      try {
+        const videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        const [track] = videoStream.getVideoTracks();
+        if (!track) return;
+        stream.addTrack(track);
+        if (pc) {
+          pc.addTrack(track, stream);
+          makingOfferRef.current = true;
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sendOffer(otherUserId, offer);
+        }
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+        setIsVideoEnabled(true);
+      } catch (err) {
+        console.warn('[Call] Failed to enable video:', err);
+      } finally {
+        makingOfferRef.current = false;
+      }
+      return;
+    }
+
+    const tracks = stream.getVideoTracks();
+    if (tracks.length === 0) {
+      setIsVideoEnabled(false);
+      return;
+    }
+
+    for (const track of tracks) {
+      track.stop();
+      stream.removeTrack(track);
+      if (pc) {
+        const sender = pc.getSenders().find(s => s.track === track);
+        if (sender) pc.removeTrack(sender);
+      }
+    }
+
+    if (pc) {
+      try {
+        makingOfferRef.current = true;
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        sendOffer(otherUserId, offer);
+      } catch (err) {
+        console.warn('[Call] Failed to disable video:', err);
+      } finally {
+        makingOfferRef.current = false;
+      }
+    }
+
+    setIsVideoEnabled(false);
   };
 
   const formatDuration = (seconds: number) => {
