@@ -7,6 +7,8 @@ interface DecryptedMessage extends Message {
   decryptedContent?: string
 }
 
+const EMPTY_MESSAGES: DecryptedMessage[] = [];
+
 interface MessagesState {
   messages: Map<number, DecryptedMessage[]>
   loadingUserIds: Set<number>
@@ -238,7 +240,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   },
 
   getMessagesForUser: (userId: number) => {
-    return get().messages.get(userId) || [];
+    return get().messages.get(userId) || EMPTY_MESSAGES;
   },
 
   isUserLoading: (userId: number) => {
