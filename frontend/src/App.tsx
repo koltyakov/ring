@@ -7,11 +7,22 @@ import ChatPage from './pages/ChatPage';
 import CallPage from './pages/CallPage';
 
 function App() {
-  const { isAuthenticated, checkAuth } = useAuthStore();
+  const { isAuthenticated, isLoading, hasCheckedAuth, checkAuth } = useAuthStore();
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  if (!hasCheckedAuth || isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-700 border-t-primary-500" />
+          <p className="text-sm text-slate-400">Loading secure session...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!isAuthenticated) {
     return <LoginPage />;

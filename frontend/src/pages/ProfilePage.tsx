@@ -5,6 +5,10 @@ export default function ProfilePage() {
   const { user, logout, createInvite } = useAuthStore();
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const buildDate = Number.isNaN(Date.parse(__APP_BUILD_TIME__)) ? null : new Date(__APP_BUILD_TIME__);
+  const buildLabel = buildDate
+    ? buildDate.toLocaleString()
+    : __APP_BUILD_TIME__;
 
   const handleCreateInvite = async () => {
     setIsCreating(true);
@@ -73,9 +77,19 @@ export default function ProfilePage() {
       </div>
 
       {/* Logout */}
+      <div className="mt-auto mb-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3">
+        <p className="text-xs font-medium text-slate-300">Build</p>
+        <p className="text-xs text-slate-400 mt-1 font-mono">
+          v{__APP_VERSION__}{__APP_GIT_SHA__ ? ` (${__APP_GIT_SHA__})` : ''}
+        </p>
+        <p className="text-[11px] text-slate-500 mt-1">
+          {buildLabel}
+        </p>
+      </div>
+
       <button
         onClick={logout}
-        className="mt-auto w-full py-3 px-4 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+        className="w-full py-3 px-4 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
       >
         Sign Out
       </button>

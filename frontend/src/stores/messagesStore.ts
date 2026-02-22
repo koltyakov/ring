@@ -9,7 +9,7 @@ interface DecryptedMessage extends Message {
 
 interface MessagesState {
   messages: Map<number, DecryptedMessage[]>
-  isLoading: boolean
+  loadingUserIds: Set<number>
   typingUsers: Map<number, boolean>
   unreadCounts: Map<number, number>
   activeChatUserId: number | null
@@ -21,54 +21,105 @@ interface MessagesState {
   clearMessages: (userId: number) => Promise<void>
   clearMessagesLocal: (userId: number) => void
   getMessagesForUser: (userId: number) => DecryptedMessage[]
+  isUserLoading: (userId: number) => boolean
   getUnreadCount: (userId: number) => number
   getTotalUnreadCount: () => number
   setActiveChatUserId: (userId: number | null) => void
   incrementUnreadCount: (userId: number) => void
 }
 
+const inFlightMessageFetches = new Map<number, Promise<void>>();
+
+function getCurrentUserId() {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return 0;
+    const payload = token.split('.')[1];
+    if (!payload) return 0;
+    const parsed = JSON.parse(atob(payload)) as { user_id?: number };
+    return typeof parsed.user_id === 'number' ? parsed.user_id : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function sortMessagesChronologically<T extends { timestamp: string }>(messages: T[]): T[] {
+  return [...messages].sort((a, b) => (
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  ));
+}
+
+function isSameMessage(a: Message, b: Message) {
+  if (a.id === b.id) return true;
+  return (
+    a.sender_id === b.sender_id &&
+    a.receiver_id === b.receiver_id &&
+    a.nonce === b.nonce &&
+    a.content === b.content &&
+    a.timestamp === b.timestamp
+  );
+}
+
 export const useMessagesStore = create<MessagesState>((set, get) => ({
   messages: new Map(),
-  isLoading: false,
+  loadingUserIds: new Set(),
   typingUsers: new Map(),
   unreadCounts: new Map(),
   activeChatUserId: null,
 
   fetchMessages: async (userId: number) => {
-    set({ isLoading: true });
-    try {
-      const messages = await api.getMessages(userId);
-      
-      // Decrypt messages
-      const user = useUsersStore.getState().getUserById(userId);
-      if (!user) {
-        set({ isLoading: false });
-        return;
-      }
-
-      const decryptedMessages = await Promise.all(
-        messages.map(async (msg) => {
-          try {
-            const decryptedContent = await decryptMessage(
-              { content: msg.content, nonce: msg.nonce },
-              base64ToBytes(user.public_key)
-            );
-            return { ...msg, decryptedContent };
-          } catch {
-            return { ...msg, decryptedContent: '[Unable to decrypt]' };
-          }
-        })
-      );
-
-      set((state) => {
-        const newMessages = new Map(state.messages);
-        newMessages.set(userId, decryptedMessages.reverse());
-        return { messages: newMessages, isLoading: false };
-      });
-    } catch (error) {
-      console.error('Failed to fetch messages:', error);
-      set({ isLoading: false });
+    const existingRequest = inFlightMessageFetches.get(userId);
+    if (existingRequest) {
+      await existingRequest;
+      return;
     }
+
+    const request = (async () => {
+      set((state) => {
+        const nextLoading = new Set(state.loadingUserIds);
+        nextLoading.add(userId);
+        return { loadingUserIds: nextLoading };
+      });
+
+      try {
+        const messages = await api.getMessages(userId);
+
+        const user = useUsersStore.getState().getUserById(userId);
+        if (!user) return;
+
+        const decryptedMessages = await Promise.all(
+          messages.map(async (msg) => {
+            try {
+              const decryptedContent = await decryptMessage(
+                { content: msg.content, nonce: msg.nonce },
+                base64ToBytes(user.public_key)
+              );
+              return { ...msg, decryptedContent };
+            } catch {
+              return { ...msg, decryptedContent: '[Unable to decrypt]' };
+            }
+          })
+        );
+
+        set((state) => {
+          const nextMessages = new Map(state.messages);
+          nextMessages.set(userId, sortMessagesChronologically(decryptedMessages));
+          return { messages: nextMessages };
+        });
+      } catch (error) {
+        console.error('Failed to fetch messages:', error);
+      } finally {
+        set((state) => {
+          const nextLoading = new Set(state.loadingUserIds);
+          nextLoading.delete(userId);
+          return { loadingUserIds: nextLoading };
+        });
+        inFlightMessageFetches.delete(userId);
+      }
+    })();
+
+    inFlightMessageFetches.set(userId, request);
+    await request;
   },
 
   sendMessage: async (receiverId: number, content: string) => {
@@ -89,10 +140,17 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       
       // Add to local state
       set((state) => {
-        const newMessages = new Map(state.messages);
-        const userMessages = newMessages.get(receiverId) || [];
-        newMessages.set(receiverId, [...userMessages, { ...message, decryptedContent: content }]);
-        return { messages: newMessages };
+        const nextMessages = new Map(state.messages);
+        const userMessages = nextMessages.get(receiverId) || [];
+        const alreadyExists = userMessages.some((existing) => isSameMessage(existing, message));
+        if (alreadyExists) {
+          return state;
+        }
+        nextMessages.set(receiverId, sortMessagesChronologically([
+          ...userMessages,
+          { ...message, decryptedContent: content },
+        ]));
+        return { messages: nextMessages };
       });
     } catch (error) {
       console.error('[Messages] Failed to send message:', error);
@@ -104,8 +162,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     console.log('[Messages] Received message via WebSocket:', message);
     
     // Determine the other user
-    const token = localStorage.getItem('token');
-    const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
+    const currentUserId = getCurrentUserId();
     const otherUserId = message.sender_id === currentUserId ? message.receiver_id : message.sender_id;
 
     console.log('[Messages] Current user:', currentUserId, 'Other user:', otherUserId, 'Sender:', message.sender_id);
@@ -130,13 +187,20 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }
     } else {
       console.log('[Messages] Message from self, not decrypting');
-      decryptedContent = undefined;
+      decryptedContent = '[Sent from another session]';
     }
 
     set((state) => {
-      const newMessages = new Map(state.messages);
-      const userMessages = newMessages.get(otherUserId) || [];
-      newMessages.set(otherUserId, [...userMessages, { ...message, decryptedContent }]);
+      const nextMessages = new Map(state.messages);
+      const userMessages = nextMessages.get(otherUserId) || [];
+      const alreadyExists = userMessages.some((existing) => isSameMessage(existing, message));
+      if (alreadyExists) {
+        return state;
+      }
+      nextMessages.set(otherUserId, sortMessagesChronologically([
+        ...userMessages,
+        { ...message, decryptedContent },
+      ]));
       
       // Increment unread count if message is from someone else and chat is not active
       const newUnreadCounts = new Map(state.unreadCounts);
@@ -146,7 +210,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       }
       
       console.log('[Messages] Added message to store for user:', otherUserId, 'Total messages:', userMessages.length + 1);
-      return { messages: newMessages, unreadCounts: newUnreadCounts };
+      return { messages: nextMessages, unreadCounts: newUnreadCounts };
     });
   },
 
@@ -175,6 +239,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 
   getMessagesForUser: (userId: number) => {
     return get().messages.get(userId) || [];
+  },
+
+  isUserLoading: (userId: number) => {
+    return get().loadingUserIds.has(userId);
   },
 
   getUnreadCount: (userId: number) => {
@@ -216,7 +284,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       set((state) => {
         const newMessages = new Map(state.messages);
         newMessages.set(userId, []);
-        return { messages: newMessages };
+        const nextUnread = new Map(state.unreadCounts);
+        nextUnread.delete(userId);
+        return { messages: newMessages, unreadCounts: nextUnread };
       });
     } catch (error) {
       console.error('Failed to clear messages:', error);
@@ -228,7 +298,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     set((state) => {
       const newMessages = new Map(state.messages);
       newMessages.set(userId, []);
-      return { messages: newMessages };
+      const nextUnread = new Map(state.unreadCounts);
+      nextUnread.delete(userId);
+      return { messages: newMessages, unreadCounts: nextUnread };
     });
   },
 }));

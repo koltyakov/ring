@@ -38,6 +38,50 @@ let manualDisconnect = false;
 const BASE_RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_DELAY_MS = 10000;
 
+function trimTrailingSlash(value: string) {
+  return value.replace(/\/+$/, '');
+}
+
+function wsPathFromBasePath(pathname: string): string {
+  const basePath = trimTrailingSlash(pathname || '');
+  if (!basePath || basePath === '/') return '/api/ws';
+  if (basePath.endsWith('/api/ws')) return basePath;
+  if (basePath.endsWith('/api')) return `${basePath}/ws`;
+  return `${basePath}/api/ws`;
+}
+
+function buildWebSocketUrl(token: string): string {
+  const envWsBase = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
+  const envApiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
+
+  if (envWsBase) {
+    const url = new URL(envWsBase);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
+    url.pathname = wsPathFromBasePath(url.pathname);
+    url.search = '';
+    url.hash = '';
+    url.searchParams.set('token', token);
+    return url.toString();
+  }
+
+  if (envApiBase) {
+    const apiUrl = new URL(envApiBase);
+    apiUrl.protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+    apiUrl.pathname = wsPathFromBasePath(apiUrl.pathname);
+    apiUrl.search = '';
+    apiUrl.hash = '';
+    apiUrl.searchParams.set('token', token);
+    return apiUrl.toString();
+  }
+
+  const isDev = window.location.port === '5173';
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = isDev ? 'localhost:8080' : window.location.host;
+  const url = new URL(`${protocol}//${host}/api/ws`);
+  url.searchParams.set('token', token);
+  return url.toString();
+}
+
 function safeParseTokenUserId(): number {
   const token = localStorage.getItem('token');
   if (!token) return 0;
@@ -165,14 +209,14 @@ function dispatchWindowEvent<T>(name: string, detail: T) {
   window.dispatchEvent(new CustomEvent<T>(name, { detail }));
 }
 
-function handleWebSocketMessage(message: { type?: string; from?: number; to?: number; data?: unknown; content?: string; nonce?: string; timestamp?: number }) {
+function handleWebSocketMessage(message: { id?: number; type?: string; from?: number; to?: number; data?: unknown; content?: string; nonce?: string; timestamp?: number }) {
   switch (message.type) {
     case 'message': {
       const currentUserId = safeParseTokenUserId();
       const timestampMs = typeof message.timestamp === 'number' ? message.timestamp * 1000 : Date.now();
 
       const msg = {
-        id: Date.now(),
+        id: typeof message.id === 'number' ? message.id : Date.now(),
         sender_id: message.from ?? 0,
         receiver_id: message.to ?? currentUserId,
         type: 'text' as const,
@@ -303,10 +347,8 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
       currentSocket = null;
     }
 
-    const isDev = window.location.port === '5173';
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = isDev ? 'localhost:8080' : window.location.host;
-    const wsUrl = `${protocol}//${host}/api/ws?token=${encodeURIComponent(token)}`;
+    const wsUrl = buildWebSocketUrl(token);
+    console.info('[WS] Connecting to', wsUrl.replace(/token=[^&]+/, 'token=<redacted>'));
 
     const socket = new WebSocket(wsUrl);
     currentSocket = socket;
@@ -314,12 +356,14 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
     socket.onopen = () => {
       if (currentSocket !== socket) return;
       reconnectAttempts = 0;
+      console.info('[WS] Connected');
       set({ isConnected: true, socket });
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       if (currentSocket !== socket) return;
 
+      console.warn('[WS] Closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
       currentSocket = null;
       set({ isConnected: false, socket: null });
 
@@ -329,13 +373,15 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
       scheduleReconnect(get().connect);
     };
 
-    socket.onerror = () => {
+    socket.onerror = (event) => {
+      console.warn('[WS] Error during handshake/connection', event);
       // Rely on onclose to transition to disconnected/reconnect.
     };
 
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as {
+          id?: number
           type?: string
           from?: number
           to?: number

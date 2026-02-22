@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUsersStore } from '../stores/usersStore';
 import { useWebSocketStore } from '../stores/websocketStore';
 
@@ -294,6 +294,7 @@ export default function CallPage() {
   const isConnected = useWebSocketStore((state) => state.isConnected);
 
   const [callState, setCallState] = useState<CallState>('connecting');
+  const [callError, setCallError] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoEnabled, setIsVideoEnabled] = useState(false);
   const [isRemotePortrait, setIsRemotePortrait] = useState(false);
@@ -325,6 +326,10 @@ export default function CallPage() {
   const incomingOffer = (location.state as { incomingOffer?: IncomingCallState } | null)?.incomingOffer;
   const displayName = user?.username ?? 'User';
   const displayInitial = displayName[0]?.toUpperCase() ?? '?';
+  const currentUserId = getCurrentUserId();
+
+  const isInvalidUserId = Number.isNaN(otherUserId) || otherUserId <= 0;
+  const isSelfCall = !isInvalidUserId && currentUserId === otherUserId;
 
   const stopCallAudio = useCallback(() => {
     stopAudioRef.current?.();
@@ -588,9 +593,9 @@ export default function CallPage() {
 
   const finishAndNavigateBack = useCallback((delayMs: number) => {
     setTimeout(() => {
-      navigate(-1);
+      navigate(`/chat/${otherUserId}`, { replace: true });
     }, delayMs);
-  }, [navigate]);
+  }, [navigate, otherUserId]);
 
   const handleEndCall = useCallback(() => {
     clearCallResumeState(otherUserId);
@@ -619,6 +624,7 @@ export default function CallPage() {
     iceRestartingRef.current = false;
     callIdRef.current = incomingOffer?.callId ?? null;
     wasConnectedRef.current = false;
+    setCallError(null);
     const mediaPrefs = readCallMediaPrefs(otherUserId);
     isMutedRef.current = mediaPrefs.muted;
     isVideoEnabledRef.current = mediaPrefs.videoEnabled;
@@ -630,6 +636,7 @@ export default function CallPage() {
 
     let mounted = true;
     let waitSocketTimeout: ReturnType<typeof setTimeout> | null = null;
+    const socketWaitStartedAt = Date.now();
 
     let sessionOffer: IncomingCallState | null = null;
     try {
@@ -825,8 +832,9 @@ export default function CallPage() {
       } catch (error) {
         console.error('[Call] Failed to initialize call:', error);
         if (!mounted) return;
+        setCallError('Unable to start the call. Check camera/microphone permissions and try again.');
         cleanup();
-        navigate(-1);
+        navigate(`/chat/${otherUserId}`, { replace: true });
       }
     };
 
@@ -834,6 +842,13 @@ export default function CallPage() {
       if (!mounted) return;
       if (useWebSocketStore.getState().isConnected) {
         void initializeCall();
+        return;
+      }
+
+      if ((Date.now() - socketWaitStartedAt) > 15_000) {
+        setCallError('Secure signaling connection timed out. Please try again.');
+        setCallState('ended');
+        finishAndNavigateBack(1200);
         return;
       }
 
@@ -1044,14 +1059,22 @@ export default function CallPage() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  if (isInvalidUserId || isSelfCall) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col">
       <div className="pt-safe px-4 py-2 flex items-center justify-between text-white">
         <span className="text-sm font-medium">
+          {callError ?? (
+            <>
           {callState === 'connecting' && 'Connecting...'}
           {callState === 'ringing' && 'Ringing...'}
           {callState === 'connected' && formatDuration(callDuration)}
           {callState === 'ended' && 'Call ended'}
+            </>
+          )}
         </span>
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -1101,7 +1124,7 @@ export default function CallPage() {
         </div>
       </div>
 
-      <div className="glass px-6 py-6 pb-safe">
+      <div className="glass px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
         <div className="flex items-center justify-center gap-6">
           <button
             onClick={toggleMute}

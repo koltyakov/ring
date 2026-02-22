@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUsersStore } from '../stores/usersStore';
 import { useMessagesStore } from '../stores/messagesStore';
@@ -6,15 +6,9 @@ import { formatDistanceToNow } from 'date-fns';
 
 export default function UserList() {
   const navigate = useNavigate();
-  const { users, isLoading, fetchUsers } = useUsersStore();
+  const { users, isLoading } = useUsersStore();
   const [_showInvite, _setShowInvite] = useState(false);
   const unreadCounts = useMessagesStore((state) => state.unreadCounts);
-
-  useEffect(() => {
-    // Poll for user updates every 30 seconds
-    const interval = setInterval(fetchUsers, 30000);
-    return () => clearInterval(interval);
-  }, [fetchUsers]);
 
   if (isLoading && users.length === 0) {
     return (

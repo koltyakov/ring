@@ -10,6 +10,8 @@ import ProfilePage from './ProfilePage';
 
 export default function ChatPage() {
   const { userId } = useParams<{ userId?: string }>();
+  const selectedUserId = userId ? Number.parseInt(userId, 10) : null;
+  const hasInvalidChatId = userId !== undefined && (selectedUserId === null || Number.isNaN(selectedUserId) || selectedUserId <= 0);
   const [activeTab, setActiveTab] = useState<'chats' | 'profile'>('chats');
   const isConnected = useWebSocketStore(state => state.isConnected);
   const setActiveChatUserId = useMessagesStore(state => state.setActiveChatUserId);
@@ -18,8 +20,7 @@ export default function ChatPage() {
   
   // Track active chat and mark messages as read
   useEffect(() => {
-    if (userId) {
-      const selectedUserId = parseInt(userId, 10);
+    if (selectedUserId && !Number.isNaN(selectedUserId)) {
       setActiveChatUserId(selectedUserId);
       markMessagesAsRead(selectedUserId);
     } else {
@@ -29,9 +30,9 @@ export default function ChatPage() {
     return () => {
       setActiveChatUserId(null);
     };
-  }, [userId, setActiveChatUserId, markMessagesAsRead]);
+  }, [selectedUserId, setActiveChatUserId, markMessagesAsRead]);
 
-  if (!userId) {
+  if (!userId || hasInvalidChatId) {
     return (
       <div className="flex-1 flex flex-col">
         {/* Header */}
@@ -47,7 +48,11 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {activeTab === 'chats' ? <UserList /> : <ProfilePage />}
+        {hasInvalidChatId ? (
+          <div className="flex-1 flex items-center justify-center px-6 text-center text-slate-400">
+            Invalid conversation link. Select a chat to continue.
+          </div>
+        ) : activeTab === 'chats' ? <UserList /> : <ProfilePage />}
 
         {/* Bottom nav for mobile-like feel */}
         <div className="glass border-t border-slate-800 px-4 py-3 pb-safe">
@@ -83,13 +88,13 @@ export default function ChatPage() {
     );
   }
 
-  const selectedUserId = parseInt(userId, 10);
+  const chatUserId = selectedUserId as number;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 mobile-full sm:static">
-      <ChatHeader userId={selectedUserId} />
-      <MessageList userId={selectedUserId} />
-      <MessageInput userId={selectedUserId} />
+      <ChatHeader userId={chatUserId} />
+      <MessageList userId={chatUserId} />
+      <MessageInput userId={chatUserId} />
     </div>
   );
 }

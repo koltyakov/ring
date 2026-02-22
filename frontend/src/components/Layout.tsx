@@ -4,6 +4,7 @@ import { useUsersStore } from '../stores/usersStore';
 import { useMessagesStore } from '../stores/messagesStore';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useWebSocketStore } from '../stores/websocketStore';
+import { PWA_NEED_REFRESH_EVENT, PWA_OFFLINE_READY_EVENT } from '../utils/pwa';
 
 let incomingCallAudioCtx: AudioContext | null = null;
 
@@ -82,6 +83,24 @@ interface IncomingCallData {
   callId?: string | null
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+function getCurrentUserId() {
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return 0;
+    const payload = token.split('.')[1];
+    if (!payload) return 0;
+    const parsed = JSON.parse(atob(payload)) as { user_id?: number };
+    return typeof parsed.user_id === 'number' ? parsed.user_id : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export default function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,6 +117,15 @@ export default function Layout({ children }: LayoutProps) {
   const showNotification = useNotificationStore(state => state.showNotification);
   
   const [pendingCall, setPendingCall] = useState<IncomingCallData | null>(null);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isPwaInstalled, setIsPwaInstalled] = useState(() =>
+    window.matchMedia('(display-mode: standalone)').matches
+  );
+  const [isOfflineReady, setIsOfflineReady] = useState(false);
+  const [isUpdateReady, setIsUpdateReady] = useState(false);
+  const [isApplyingUpdate, setIsApplyingUpdate] = useState(false);
+  const pwaUpdateRef = useRef<null | ((reloadPage?: boolean) => Promise<void>)>(null);
   const isOnCallPage = location.pathname.startsWith('/call/');
   const processedMessagesRef = useRef<Set<string>>(new Set());
   const stopIncomingCallToneRef = useRef<(() => void) | null>(null);
@@ -109,12 +137,33 @@ export default function Layout({ children }: LayoutProps) {
 
   // Load users first, then connect WebSocket so presence updates have targets
   useEffect(() => {
-    fetchUsers().then(() => connect());
+    void fetchUsers().finally(() => {
+      connect();
+    });
 
     return () => {
       disconnect();
     };
   }, [fetchUsers, connect, disconnect]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      void fetchUsers();
+      connect();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [connect, fetchUsers]);
 
   // Periodic refetch as a fallback to keep online status in sync
   useEffect(() => {
@@ -126,6 +175,40 @@ export default function Layout({ children }: LayoutProps) {
     
     return () => clearInterval(interval);
   }, [isConnected, fetchUsers]);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      const installEvent = event as BeforeInstallPromptEvent;
+      installEvent.preventDefault();
+      setInstallPromptEvent(installEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setIsPwaInstalled(true);
+      setInstallPromptEvent(null);
+    };
+
+    const handleOfflineReady = () => {
+      setIsOfflineReady(true);
+    };
+
+    const handleNeedRefresh = (event: WindowEventMap[typeof PWA_NEED_REFRESH_EVENT]) => {
+      pwaUpdateRef.current = event.detail.updateSW;
+      setIsUpdateReady(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener(PWA_OFFLINE_READY_EVENT, handleOfflineReady);
+    window.addEventListener(PWA_NEED_REFRESH_EVENT, handleNeedRefresh);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener(PWA_OFFLINE_READY_EVENT, handleOfflineReady);
+      window.removeEventListener(PWA_NEED_REFRESH_EVENT, handleNeedRefresh);
+    };
+  }, []);
 
   // Handle incoming calls globally — but not while already on a call page
   useEffect(() => {
@@ -214,8 +297,7 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     const handleNewMessage = (e: CustomEvent) => {
       const message = e.detail;
-      const token = localStorage.getItem('token');
-      const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
+      const currentUserId = getCurrentUserId();
       
       // Only show notification for incoming messages (not sent by us)
       if (message.sender_id === currentUserId) return;
@@ -269,6 +351,29 @@ export default function Layout({ children }: LayoutProps) {
     }
   };
 
+  const handleInstallPwa = async () => {
+    if (!installPromptEvent) return;
+    try {
+      await installPromptEvent.prompt();
+      const choice = await installPromptEvent.userChoice;
+      if (choice.outcome === 'accepted') {
+        setInstallPromptEvent(null);
+      }
+    } catch {
+      // ignore prompt failures
+    }
+  };
+
+  const handleApplyPwaUpdate = async () => {
+    if (!pwaUpdateRef.current || isApplyingUpdate) return;
+    setIsApplyingUpdate(true);
+    try {
+      await pwaUpdateRef.current(true);
+    } finally {
+      setIsApplyingUpdate(false);
+    }
+  };
+
   const handleDeclineCall = () => {
     if (pendingCall) {
       wsEndCall(pendingCall.from); // Notify the caller we declined
@@ -284,6 +389,7 @@ export default function Layout({ children }: LayoutProps) {
   };
 
   const caller = pendingCall ? useUsersStore.getState().getUserById(pendingCall.from) : null;
+  const showInstallPrompt = Boolean(installPromptEvent) && !isPwaInstalled;
 
   return (
     <div className="h-full flex flex-col bg-slate-950 relative">
@@ -302,6 +408,78 @@ export default function Layout({ children }: LayoutProps) {
       `}</style>
       
       {children}
+
+      {!isOnline && (
+        <div className={`fixed left-4 right-4 z-40 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 backdrop-blur-sm ${showInstallPrompt || isOfflineReady || isUpdateReady ? 'bottom-28' : 'bottom-4'}`}>
+          You are offline. Messages and calls will resume when the connection returns.
+        </div>
+      )}
+
+      {(showInstallPrompt || isOfflineReady || isUpdateReady) && (
+        <div className="fixed bottom-4 left-4 right-4 z-40 flex flex-col gap-2">
+          {showInstallPrompt && (
+            <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-4 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Install ChatApp</p>
+                <p className="text-xs text-slate-400">Open it like a native app and keep chat faster to launch.</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setInstallPromptEvent(null)}
+                  className="px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-slate-800"
+                >
+                  Later
+                </button>
+                <button
+                  onClick={() => void handleInstallPwa()}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-primary-600 text-white hover:bg-primary-500"
+                >
+                  Install
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isOfflineReady && !isUpdateReady && (
+            <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Offline mode ready</p>
+                <p className="text-xs text-slate-300">The app shell is cached for faster startup.</p>
+              </div>
+              <button
+                onClick={() => setIsOfflineReady(false)}
+                className="px-3 py-1.5 rounded-lg text-xs text-slate-200 hover:bg-white/5"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {isUpdateReady && (
+            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-white">Update available</p>
+                <p className="text-xs text-slate-300">Reload to apply the latest chat and call fixes.</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => setIsUpdateReady(false)}
+                  className="px-3 py-1.5 rounded-lg text-xs text-slate-200 hover:bg-white/5"
+                >
+                  Later
+                </button>
+                <button
+                  onClick={() => void handleApplyPwaUpdate()}
+                  disabled={isApplyingUpdate}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-500 text-white hover:bg-blue-400 disabled:opacity-60"
+                >
+                  {isApplyingUpdate ? 'Updating...' : 'Reload'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       
       {/* Message Notifications */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none">
@@ -330,13 +508,13 @@ export default function Layout({ children }: LayoutProps) {
       </div>
       
       {/* Incoming Call Modal */}
-      {pendingCall && caller && (
+      {pendingCall && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
           <div className="bg-slate-900 rounded-2xl p-8 max-w-sm w-full text-center">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4">
-              {caller.username[0].toUpperCase()}
+              {(caller?.username?.[0] ?? `#${pendingCall.from}`[0] ?? '?').toUpperCase()}
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">{caller.username}</h2>
+            <h2 className="text-xl font-bold text-white mb-2">{caller?.username ?? `User #${pendingCall.from}`}</h2>
             <p className="text-slate-400 mb-6">Incoming call...</p>
             
             <div className="flex items-center justify-center gap-4">

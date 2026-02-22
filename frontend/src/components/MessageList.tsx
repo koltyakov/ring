@@ -10,23 +10,35 @@ interface MessageListProps {
 export default function MessageList({ userId }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messages = useMessagesStore(state => state.getMessagesForUser(userId));
-  const isLoading = useMessagesStore(state => state.isLoading);
+  const isLoading = useMessagesStore(state => state.isUserLoading(userId));
   const fetchMessages = useMessagesStore(state => state.fetchMessages);
   const typing = useMessagesStore(state => state.typingUsers.get(userId));
-  useUsersStore(state => state.getUserById(userId)); // prefetch user data
+  const user = useUsersStore(state => state.getUserById(userId));
 
   useEffect(() => {
+    if (!user?.public_key) return;
     fetchMessages(userId);
-  }, [userId, fetchMessages]);
+  }, [userId, user?.public_key, fetchMessages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, typing]);
 
-  const token = localStorage.getItem('token');
-  const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
+  let currentUserId = 0;
+  try {
+    const token = localStorage.getItem('token');
+    if (token) {
+      const payload = token.split('.')[1];
+      if (payload) {
+        const parsed = JSON.parse(atob(payload)) as { user_id?: number };
+        currentUserId = typeof parsed.user_id === 'number' ? parsed.user_id : 0;
+      }
+    }
+  } catch {
+    currentUserId = 0;
+  }
 
-  if (isLoading && messages.length === 0) {
+  if ((!user && messages.length === 0) || (isLoading && messages.length === 0)) {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500" />
@@ -34,9 +46,7 @@ export default function MessageList({ userId }: MessageListProps) {
     );
   }
 
-  const visibleMessages = messages.filter(
-    msg => Boolean(msg.decryptedContent) && msg.decryptedContent !== '[Unable to decrypt]'
-  );
+  const visibleMessages = messages;
 
   // Group messages by date
   const groupedMessages: { date: string; items: typeof visibleMessages }[] = [];
@@ -73,6 +83,7 @@ export default function MessageList({ userId }: MessageListProps) {
             
             {group.items.map((msg, index) => {
               const isSent = msg.sender_id === currentUserId;
+              const displayContent = msg.decryptedContent ?? (isSent ? '[Sent from another session]' : '[Decrypting...]');
               const showTime = index === group.items.length - 1 || 
                 new Date(group.items[index + 1].timestamp).getTime() - new Date(msg.timestamp).getTime() > 60000;
 
@@ -84,7 +95,7 @@ export default function MessageList({ userId }: MessageListProps) {
                   <div className="max-w-[75%]">
                     <div className={isSent ? 'message-sent' : 'message-received'}>
                       <span style={{ whiteSpace: 'pre-wrap' }}>
-                        {msg.decryptedContent || '[Decrypting...]'}
+                        {displayContent}
                       </span>
                     </div>
                     {showTime && (

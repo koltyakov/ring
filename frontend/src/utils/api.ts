@@ -1,4 +1,4 @@
-const API_URL = ''; // Uses proxy in dev, same origin in prod
+const API_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {

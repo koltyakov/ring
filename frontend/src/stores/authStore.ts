@@ -7,6 +7,7 @@ interface AuthState {
   user: User | null
   isAuthenticated: boolean
   isLoading: boolean
+  hasCheckedAuth: boolean
   error: string | null
   register: (username: string, password: string, inviteCode: string) => Promise<void>
   login: (username: string, password: string) => Promise<void>
@@ -21,6 +22,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isAuthenticated: !!localStorage.getItem('token'),
   isLoading: false,
+  hasCheckedAuth: false,
   error: null,
 
   register: async (username: string, password: string, inviteCode: string) => {
@@ -42,6 +44,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         user: response.user,
         isAuthenticated: true,
         isLoading: false,
+        hasCheckedAuth: true,
       });
     } catch (error) {
       set({
@@ -84,6 +87,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         user: { ...response.user, public_key: publicKeyBase64 },
         isAuthenticated: true,
         isLoading: false,
+        hasCheckedAuth: true,
       });
     } catch (error) {
       set({
@@ -100,15 +104,18 @@ export const useAuthStore = create<AuthState>((set) => ({
       token: null,
       user: null,
       isAuthenticated: false,
+      hasCheckedAuth: true,
     });
   },
 
   checkAuth: async () => {
     const token = localStorage.getItem('token');
     if (!token) {
-      set({ isAuthenticated: false, user: null });
+      set({ isAuthenticated: false, user: null, hasCheckedAuth: true, isLoading: false });
       return;
     }
+
+    set({ isLoading: true });
 
     try {
       const user = await api.getMe();
@@ -128,10 +135,10 @@ export const useAuthStore = create<AuthState>((set) => ({
         }
       }
       
-      set({ user, isAuthenticated: true, error: null });
+      set({ user, isAuthenticated: true, error: null, hasCheckedAuth: true, isLoading: false });
     } catch {
       localStorage.removeItem('token');
-      set({ isAuthenticated: false, user: null, error: null });
+      set({ isAuthenticated: false, user: null, error: null, hasCheckedAuth: true, isLoading: false });
     }
   },
 
