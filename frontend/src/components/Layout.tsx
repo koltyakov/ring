@@ -1,9 +1,76 @@
-import { useEffect, useState, useRef } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useUsersStore } from '../stores/usersStore';
 import { useMessagesStore } from '../stores/messagesStore';
 import { useNotificationStore } from '../stores/notificationStore';
 import { useWebSocketStore } from '../stores/websocketStore';
+
+let incomingCallAudioCtx: AudioContext | null = null;
+
+function getIncomingCallAudioCtx() {
+  if (!incomingCallAudioCtx || incomingCallAudioCtx.state === 'closed') {
+    incomingCallAudioCtx = new AudioContext();
+  }
+  if (incomingCallAudioCtx.state === 'suspended') {
+    void incomingCallAudioCtx.resume();
+  }
+  return incomingCallAudioCtx;
+}
+
+function playIncomingCallTone(): () => void {
+  try {
+    const ctx = getIncomingCallAudioCtx();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.08;
+    gain.connect(ctx.destination);
+
+    let stopped = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const activeOscs = new Set<OscillatorNode>();
+
+    const pulse = (frequency: number, startAt: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = frequency;
+      osc.connect(gain);
+      activeOscs.add(osc);
+      osc.onended = () => activeOscs.delete(osc);
+      osc.start(startAt);
+      osc.stop(startAt + duration);
+    };
+
+    const ring = () => {
+      if (stopped) return;
+      const t = ctx.currentTime;
+
+      pulse(660, t, 0.2);
+      pulse(880, t, 0.2);
+      pulse(660, t + 0.35, 0.2);
+      pulse(880, t + 0.35, 0.2);
+
+      timeout = setTimeout(ring, 3000);
+    };
+
+    ring();
+
+    return () => {
+      stopped = true;
+      if (timeout) clearTimeout(timeout);
+      for (const osc of activeOscs) {
+        try {
+          osc.stop();
+        } catch {
+          // already stopped
+        }
+      }
+      activeOscs.clear();
+    };
+  } catch {
+    return () => {
+      // ignore audio init failures (e.g. autoplay restrictions)
+    };
+  }
+}
 
 interface LayoutProps {
   children: React.ReactNode
@@ -33,6 +100,12 @@ export default function Layout({ children }: LayoutProps) {
   const [pendingCall, setPendingCall] = useState<IncomingCallData | null>(null);
   const isOnCallPage = location.pathname.startsWith('/call/');
   const processedMessagesRef = useRef<Set<string>>(new Set());
+  const stopIncomingCallToneRef = useRef<(() => void) | null>(null);
+
+  const stopIncomingCallTone = useCallback(() => {
+    stopIncomingCallToneRef.current?.();
+    stopIncomingCallToneRef.current = null;
+  }, []);
 
   // Load users first, then connect WebSocket so presence updates have targets
   useEffect(() => {
@@ -64,20 +137,43 @@ export default function Layout({ children }: LayoutProps) {
   // Auto-dismiss modal immediately when navigating to call page
   useEffect(() => {
     if (isOnCallPage) {
+      stopIncomingCallTone();
       setPendingCall(null);
       clearIncomingCall();
     }
-  }, [isOnCallPage, clearIncomingCall]);
+  }, [isOnCallPage, clearIncomingCall, stopIncomingCallTone]);
 
   // Ringing timeout — auto-dismiss after 45 seconds if not answered
   useEffect(() => {
     if (!pendingCall) return;
     const timeout = setTimeout(() => {
+      stopIncomingCallTone();
       setPendingCall(null);
       clearIncomingCall();
     }, 45_000);
     return () => clearTimeout(timeout);
-  }, [pendingCall, clearIncomingCall]);
+  }, [pendingCall, clearIncomingCall, stopIncomingCallTone]);
+
+  useEffect(() => {
+    if (!pendingCall) {
+      stopIncomingCallTone();
+      return;
+    }
+
+    if (!stopIncomingCallToneRef.current) {
+      stopIncomingCallToneRef.current = playIncomingCallTone();
+    }
+
+    return () => {
+      // Keep the tone running across rerenders while the same modal remains open.
+    };
+  }, [pendingCall, stopIncomingCallTone]);
+
+  useEffect(() => {
+    return () => {
+      stopIncomingCallTone();
+    };
+  }, [stopIncomingCallTone]);
 
   // Listen for call-ended to dismiss the incoming call dialog when the caller hangs up
   useEffect(() => {
@@ -86,6 +182,7 @@ export default function Layout({ children }: LayoutProps) {
       // Dismiss if the caller who is ringing us ended the call
       setPendingCall(prev => {
         if (prev && detail?.from === prev.from) {
+          stopIncomingCallTone();
           clearIncomingCall();
           return null;
         }
@@ -97,7 +194,7 @@ export default function Layout({ children }: LayoutProps) {
     return () => {
       window.removeEventListener('call-ended', handleCallEnded);
     };
-  }, [clearIncomingCall]);
+  }, [clearIncomingCall, stopIncomingCallTone]);
 
   // Listen for incoming call events (backup mechanism) — skip if already on call page
   useEffect(() => {
@@ -167,6 +264,7 @@ export default function Layout({ children }: LayoutProps) {
       navigate(`/call/${pendingCall.from}?incoming=true`, {
         state: { incomingOffer: pendingCall },
       });
+      stopIncomingCallTone();
       setPendingCall(null);
     }
   };
@@ -181,6 +279,7 @@ export default function Layout({ children }: LayoutProps) {
       // Ignore storage errors
     }
     clearIncomingCall();
+    stopIncomingCallTone();
     setPendingCall(null);
   };
 
