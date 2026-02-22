@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuthStore } from '../stores/authStore';
+import { forcePwaUpgrade } from '../utils/pwa';
 
 export default function ProfilePage() {
   const { user, logout, createInvite } = useAuthStore();
   const [inviteCode, setInviteCode] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isForcingUpgrade, setIsForcingUpgrade] = useState(false);
+  const versionTapCountRef = useRef(0);
+  const versionTapResetTimerRef = useRef<number | null>(null);
   const buildDate = Number.isNaN(Date.parse(__APP_BUILD_TIME__)) ? null : new Date(__APP_BUILD_TIME__);
   const buildLabel = buildDate
     ? buildDate.toLocaleString()
@@ -26,6 +30,38 @@ export default function ProfilePage() {
     if (inviteCode) {
       navigator.clipboard.writeText(inviteCode);
     }
+  };
+
+  const handleForceUpgrade = async () => {
+    if (isForcingUpgrade) return;
+    setIsForcingUpgrade(true);
+    try {
+      await forcePwaUpgrade();
+    } catch (error) {
+      console.error('Failed to force app upgrade:', error);
+    } finally {
+      setIsForcingUpgrade(false);
+    }
+  };
+
+  const handleVersionBlockTap = () => {
+    versionTapCountRef.current += 1;
+
+    if (versionTapResetTimerRef.current !== null) {
+      window.clearTimeout(versionTapResetTimerRef.current);
+    }
+
+    if (versionTapCountRef.current >= 3) {
+      versionTapCountRef.current = 0;
+      versionTapResetTimerRef.current = null;
+      void handleForceUpgrade();
+      return;
+    }
+
+    versionTapResetTimerRef.current = window.setTimeout(() => {
+      versionTapCountRef.current = 0;
+      versionTapResetTimerRef.current = null;
+    }, 800);
   };
 
   if (!user) return null;
@@ -77,7 +113,12 @@ export default function ProfilePage() {
       </div>
 
       {/* Logout */}
-      <div className="mt-auto mb-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3">
+      <div
+        className="mt-auto mb-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 cursor-pointer select-none"
+        onClick={handleVersionBlockTap}
+        aria-label="Build info"
+        title={isForcingUpgrade ? 'Checking for update...' : 'Build info'}
+      >
         <p className="text-xs font-medium text-slate-300">Build</p>
         <p className="text-xs text-slate-400 mt-1 font-mono">
           v{__APP_VERSION__}{__APP_GIT_SHA__ ? ` (${__APP_GIT_SHA__})` : ''}
@@ -85,6 +126,11 @@ export default function ProfilePage() {
         <p className="text-[11px] text-slate-500 mt-1">
           {buildLabel}
         </p>
+        {isForcingUpgrade && (
+          <p className="text-[11px] text-primary-400 mt-2">
+            Checking for update...
+          </p>
+        )}
       </div>
 
       <button

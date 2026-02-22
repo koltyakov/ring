@@ -15,14 +15,14 @@ export default function ChatPage() {
   const [activeTab, setActiveTab] = useState<'chats' | 'profile'>('chats');
   const isConnected = useWebSocketStore(state => state.isConnected);
   const setActiveChatUserId = useMessagesStore(state => state.setActiveChatUserId);
-  const markMessagesAsRead = useMessagesStore(state => state.markMessagesAsRead);
+  const markIncomingMessagesAsRead = useMessagesStore(state => state.markIncomingMessagesAsRead);
   const totalUnreadCount = useMessagesStore(state => state.getTotalUnreadCount)();
   
   // Track active chat and mark messages as read
   useEffect(() => {
     if (selectedUserId && !Number.isNaN(selectedUserId)) {
       setActiveChatUserId(selectedUserId);
-      markMessagesAsRead(selectedUserId);
+      markIncomingMessagesAsRead(selectedUserId);
     } else {
       setActiveChatUserId(null);
     }
@@ -30,7 +30,7 @@ export default function ChatPage() {
     return () => {
       setActiveChatUserId(null);
     };
-  }, [selectedUserId, setActiveChatUserId, markMessagesAsRead]);
+  }, [selectedUserId, setActiveChatUserId, markIncomingMessagesAsRead]);
 
   if (!userId || hasInvalidChatId) {
     return (

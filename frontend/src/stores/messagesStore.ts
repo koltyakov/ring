@@ -19,7 +19,8 @@ interface MessagesState {
   sendMessage: (receiverId: number, content: string) => Promise<void>
   addMessage: (message: Message) => void
   setTyping: (userId: number, typing: boolean) => void
-  markMessagesAsRead: (userId: number) => void
+  markIncomingMessagesAsRead: (userId: number) => void
+  markSentMessagesAsRead: (userId: number) => void
   clearMessages: (userId: number) => Promise<void>
   clearMessagesLocal: (userId: number) => void
   getMessagesForUser: (userId: number) => DecryptedMessage[]
@@ -214,6 +215,12 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       console.log('[Messages] Added message to store for user:', otherUserId, 'Total messages:', userMessages.length + 1);
       return { messages: nextMessages, unreadCounts: newUnreadCounts };
     });
+
+    // When a chat is open and a new message arrives, refresh from the server so it can
+    // mark the message read and emit a read receipt back to the sender.
+    if (message.sender_id !== currentUserId && get().activeChatUserId === otherUserId) {
+      void get().fetchMessages(otherUserId);
+    }
   },
 
   setTyping: (userId: number, typing: boolean) => {
@@ -224,18 +231,37 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     });
   },
 
-  markMessagesAsRead: (userId: number) => {
+  markIncomingMessagesAsRead: (userId: number) => {
     set((state) => {
       const newMessages = new Map(state.messages);
       const userMessages = newMessages.get(userId);
       if (userMessages) {
-        const updatedMessages = userMessages.map(msg => ({ ...msg, read: true }));
+        const updatedMessages = userMessages.map((msg) => (
+          msg.sender_id === userId ? { ...msg, read: true } : msg
+        ));
         newMessages.set(userId, updatedMessages);
       }
       // Clear unread count for this user
       const newUnreadCounts = new Map(state.unreadCounts);
       newUnreadCounts.delete(userId);
       return { messages: newMessages, unreadCounts: newUnreadCounts };
+    });
+  },
+
+  markSentMessagesAsRead: (userId: number) => {
+    const currentUserId = getCurrentUserId();
+    set((state) => {
+      const newMessages = new Map(state.messages);
+      const userMessages = newMessages.get(userId);
+      if (!userMessages) return state;
+
+      const updatedMessages = userMessages.map((msg) => (
+        msg.sender_id === currentUserId && msg.receiver_id === userId
+          ? { ...msg, read: true }
+          : msg
+      ));
+      newMessages.set(userId, updatedMessages);
+      return { messages: newMessages };
     });
   },
 

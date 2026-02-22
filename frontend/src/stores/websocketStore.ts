@@ -316,7 +316,7 @@ function handleWebSocketMessage(message: { id?: number; type?: string; from?: nu
     }
 
     case 'read_receipt':
-      useMessagesStore.getState().markMessagesAsRead(message.from ?? 0);
+      useMessagesStore.getState().markSentMessagesAsRead(message.from ?? 0);
       break;
 
     case 'clear_messages':
