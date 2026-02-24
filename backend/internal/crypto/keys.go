@@ -25,10 +25,10 @@ func DeriveSharedSecret(privateKey, publicKey []byte) ([]byte, error) {
 	var priv, pub [32]byte
 	copy(priv[:], privateKey)
 	copy(pub[:], publicKey)
-	
+
 	var shared [32]byte
 	curve25519.ScalarMult(&shared, &priv, &pub)
-	
+
 	// Hash the shared secret for better security
 	hash := sha256.Sum256(shared[:])
 	return hash[:], nil
@@ -49,7 +49,7 @@ func Encrypt(message, sharedSecret, nonce []byte) []byte {
 	copy(secret[:], sharedSecret)
 	var n [24]byte
 	copy(n[:], nonce)
-	
+
 	return box.SealAfterPrecomputation(nil, message, &n, &secret)
 }
 
@@ -59,7 +59,7 @@ func Decrypt(encrypted, sharedSecret, nonce []byte) ([]byte, error) {
 	copy(secret[:], sharedSecret)
 	var n [24]byte
 	copy(n[:], nonce)
-	
+
 	out, ok := box.OpenAfterPrecomputation(nil, encrypted, &n, &secret)
 	if !ok {
 		return nil, errors.New("decryption failed")

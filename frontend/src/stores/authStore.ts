@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import api, { type User } from '../utils/api';
+import api, { ApiError, type User } from '../utils/api';
 import { getOrCreateKeys, getPublicKeyBase64 } from '../utils/crypto';
 
 interface AuthState {
@@ -136,9 +136,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       
       set({ user, isAuthenticated: true, error: null, hasCheckedAuth: true, isLoading: false });
-    } catch {
-      localStorage.removeItem('token');
-      set({ isAuthenticated: false, user: null, error: null, hasCheckedAuth: true, isLoading: false });
+    } catch (error) {
+      // Only logout on auth failure (401), not on network errors or aborted fetches
+      if (error instanceof ApiError && error.status === 401) {
+        localStorage.removeItem('token');
+        set({ isAuthenticated: false, user: null, error: null, hasCheckedAuth: true, isLoading: false });
+      } else {
+        // Network error / request aborted — keep token, just mark checked
+        console.warn('[Auth] checkAuth failed (non-401), keeping session:', error);
+        set({ hasCheckedAuth: true, isLoading: false });
+      }
     }
   },
 

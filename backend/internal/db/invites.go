@@ -13,7 +13,7 @@ func GenerateInviteCode() (string, error) {
 		return "", err
 	}
 	code := hex.EncodeToString(bytes)
-	
+
 	_, err := DB.Exec("INSERT INTO invites (code) VALUES (?)", code)
 	if err != nil {
 		return "", err
@@ -29,7 +29,7 @@ func ValidateAndUseInvite(code string, userID int64) error {
 	if err != nil {
 		return err
 	}
-	
+
 	rows, err := result.RowsAffected()
 	if err != nil {
 		return err

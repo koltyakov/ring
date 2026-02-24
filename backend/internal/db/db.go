@@ -22,7 +22,7 @@ type Message struct {
 	ID         int64     `json:"id"`
 	SenderID   int64     `json:"sender_id"`
 	ReceiverID int64     `json:"receiver_id"`
-	Type       string    `json:"type"` // text, file, call
+	Type       string    `json:"type"`    // text, file, call
 	Content    []byte    `json:"content"` // encrypted content
 	Nonce      []byte    `json:"nonce"`
 	Timestamp  time.Time `json:"timestamp"`
@@ -30,10 +30,10 @@ type Message struct {
 }
 
 type Invite struct {
-	ID        int64     `json:"id"`
-	Code      string    `json:"code"`
-	UsedBy    *int64    `json:"used_by"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int64      `json:"id"`
+	Code      string     `json:"code"`
+	UsedBy    *int64     `json:"used_by"`
+	CreatedAt time.Time  `json:"created_at"`
 	UsedAt    *time.Time `json:"used_at"`
 }
 
