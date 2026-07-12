@@ -98,11 +98,6 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokenString := r.Header.Get("Authorization")
 
-		// Also check query param for WebSocket connections
-		if tokenString == "" {
-			tokenString = r.URL.Query().Get("token")
-		}
-
 		if tokenString == "" {
 			log.Printf("Auth failed: missing token for %s %s", r.Method, r.URL.Path)
 			errorResponse(w, http.StatusUnauthorized, "missing authorization")
@@ -156,7 +151,8 @@ func SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/messages", authMiddleware(handleMessages))
 	mux.HandleFunc("/api/messages/", authMiddleware(handleMessages))
 	mux.HandleFunc("/api/messages/clear", authMiddleware(handleClearMessages))
-	mux.HandleFunc("/api/ws", authMiddleware(handleWebSocket))
+	mux.HandleFunc("/api/ws-ticket", authMiddleware(handleCreateWebSocketTicket))
+	mux.HandleFunc("/api/ws", handleWebSocket)
 	mux.HandleFunc("/api/invites", authMiddleware(handleCreateInvite))
 }
 
@@ -603,10 +599,21 @@ func handleClearMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	userID := getUserID(r)
-	username := getUsername(r)
+	if r.Method != http.MethodGet {
+		errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if !IsOriginAllowed(r) {
+		errorResponse(w, http.StatusForbidden, "origin not allowed")
+		return
+	}
+	ticket, ok := webSocketTickets.consume(r.URL.Query().Get("ticket"), time.Now())
+	if !ok {
+		errorResponse(w, http.StatusUnauthorized, "invalid or expired WebSocket ticket")
+		return
+	}
 
-	log.Printf("WebSocket connection attempt from user %d (%s)", userID, username)
+	log.Printf("WebSocket connection attempt from user %d (%s)", ticket.UserID, ticket.Username)
 
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -614,21 +621,38 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("WebSocket upgraded successfully for user %d", userID)
+	log.Printf("WebSocket upgraded successfully for user %d", ticket.UserID)
 
 	hub := ws.GetHub()
 	client := &ws.Client{
 		Hub:      hub,
 		Conn:     conn,
 		Send:     make(chan []byte, 256),
-		UserID:   userID,
-		Username: username,
+		UserID:   ticket.UserID,
+		Username: ticket.Username,
 	}
 
 	hub.Register <- client
 
 	go client.WritePump()
 	go client.ReadPump()
+}
+
+func handleCreateWebSocketTicket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	ticket, err := webSocketTickets.issue(getUserID(r), getUsername(r), time.Now())
+	if err != nil {
+		log.Printf("Failed to issue WebSocket ticket: %v", err)
+		errorResponse(w, http.StatusServiceUnavailable, "unable to create WebSocket ticket")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"ticket":     ticket,
+		"expires_in": int(webSocketTicketLifetime.Seconds()),
+	})
 }
 
 func handleCreateInvite(w http.ResponseWriter, r *http.Request) {

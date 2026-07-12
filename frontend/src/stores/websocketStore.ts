@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import api from '../utils/api';
 import { useMessagesStore } from './messagesStore';
 import { useUsersStore } from './usersStore';
 
@@ -12,7 +13,7 @@ interface WebSocketState {
   socket: WebSocket | null;
   isConnected: boolean;
   incomingCall: IncomingCall | null;
-  connect: () => void;
+  connect: () => Promise<void>;
   disconnect: () => void;
   sendTyping: (to: number, typing: boolean) => void;
   sendCallOffer: (to: number, data: unknown) => void;
@@ -33,6 +34,7 @@ interface DecodedSignal {
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let currentSocket: WebSocket | null = null;
+let connectionAttempt: Promise<void> | null = null;
 let manualDisconnect = false;
 
 const BASE_RECONNECT_DELAY_MS = 1000;
@@ -50,7 +52,7 @@ function wsPathFromBasePath(pathname: string): string {
   return `${basePath}/api/ws`;
 }
 
-function buildWebSocketUrl(token: string): string {
+function buildWebSocketUrl(ticket: string): string {
   const envWsBase = (import.meta.env.VITE_WS_BASE_URL as string | undefined)?.trim();
   const envApiBase = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.trim();
 
@@ -61,7 +63,7 @@ function buildWebSocketUrl(token: string): string {
     url.pathname = wsPathFromBasePath(url.pathname);
     url.search = '';
     url.hash = '';
-    url.searchParams.set('token', token);
+    url.searchParams.set('ticket', ticket);
     return url.toString();
   }
 
@@ -71,7 +73,7 @@ function buildWebSocketUrl(token: string): string {
     apiUrl.pathname = wsPathFromBasePath(apiUrl.pathname);
     apiUrl.search = '';
     apiUrl.hash = '';
-    apiUrl.searchParams.set('token', token);
+    apiUrl.searchParams.set('ticket', ticket);
     return apiUrl.toString();
   }
 
@@ -79,7 +81,7 @@ function buildWebSocketUrl(token: string): string {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = isDev ? 'localhost:8080' : window.location.host;
   const url = new URL(`${protocol}//${host}/api/ws`);
-  url.searchParams.set('token', token);
+  url.searchParams.set('ticket', ticket);
   return url.toString();
 }
 
@@ -196,7 +198,7 @@ function closeSocket(socket: WebSocket) {
   socket.close();
 }
 
-function scheduleReconnect(connect: () => void) {
+function scheduleReconnect(connect: () => Promise<void>) {
   clearReconnectTimer();
 
   const backoff = Math.min(
@@ -209,7 +211,7 @@ function scheduleReconnect(connect: () => void) {
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     reconnectAttempts += 1;
-    connect();
+    void connect();
   }, delay);
 }
 
@@ -363,7 +365,11 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
   isConnected: false,
   incomingCall: null,
 
-  connect: () => {
+  connect: async () => {
+    if (connectionAttempt) {
+      await connectionAttempt;
+      return get().connect();
+    }
     const token = localStorage.getItem('token');
     if (!token) return;
 
@@ -384,60 +390,77 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
       currentSocket = null;
     }
 
-    const wsUrl = buildWebSocketUrl(token);
-    console.info('[WS] Connecting to', wsUrl.replace(/token=[^&]+/, 'token=<redacted>'));
-
-    const socket = new WebSocket(wsUrl);
-    currentSocket = socket;
-
-    socket.onopen = () => {
-      if (currentSocket !== socket) return;
-      reconnectAttempts = 0;
-      console.info('[WS] Connected');
-      set({ isConnected: true, socket });
-    };
-
-    socket.onclose = (event) => {
-      if (currentSocket !== socket) return;
-
-      console.warn('[WS] Closed', {
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-      });
-      currentSocket = null;
-      set({ isConnected: false, socket: null });
-
-      if (manualDisconnect) return;
-      if (!localStorage.getItem('token')) return;
-
-      scheduleReconnect(get().connect);
-    };
-
-    socket.onerror = (event) => {
-      console.warn('[WS] Error during handshake/connection', event);
-      // Rely on onclose to transition to disconnected/reconnect.
-    };
-
-    socket.onmessage = (event) => {
+    const attempt = (async () => {
       try {
-        const message = JSON.parse(event.data) as {
-          id?: number;
-          type?: string;
-          from?: number;
-          to?: number;
-          data?: unknown;
-          content?: string;
-          nonce?: string;
-          timestamp?: number;
-        };
-        handleWebSocketMessage(message);
-      } catch {
-        // Ignore malformed messages.
-      }
-    };
+        const { ticket } = await api.createWebSocketTicket();
+        if (manualDisconnect || !localStorage.getItem('token')) return;
 
-    set({ socket });
+        const wsUrl = buildWebSocketUrl(ticket);
+        console.info('[WS] Connecting to', wsUrl.replace(/ticket=[^&]+/, 'ticket=<redacted>'));
+
+        const socket = new WebSocket(wsUrl);
+        currentSocket = socket;
+
+        socket.onopen = () => {
+          if (currentSocket !== socket) return;
+          reconnectAttempts = 0;
+          console.info('[WS] Connected');
+          set({ isConnected: true, socket });
+        };
+
+        socket.onclose = (event) => {
+          if (currentSocket !== socket) return;
+
+          console.warn('[WS] Closed', {
+            code: event.code,
+            reason: event.reason,
+            wasClean: event.wasClean,
+          });
+          currentSocket = null;
+          set({ isConnected: false, socket: null });
+
+          if (manualDisconnect || !localStorage.getItem('token')) return;
+          scheduleReconnect(get().connect);
+        };
+
+        socket.onerror = (event) => {
+          console.warn('[WS] Error during handshake/connection', event);
+          // Rely on onclose to transition to disconnected/reconnect.
+        };
+
+        socket.onmessage = (event) => {
+          try {
+            const message = JSON.parse(event.data) as {
+              id?: number;
+              type?: string;
+              from?: number;
+              to?: number;
+              data?: unknown;
+              content?: string;
+              nonce?: string;
+              timestamp?: number;
+            };
+            handleWebSocketMessage(message);
+          } catch {
+            // Ignore malformed messages.
+          }
+        };
+
+        set({ socket });
+      } catch (error) {
+        console.warn('[WS] Failed to obtain connection ticket', error);
+        if (!manualDisconnect && localStorage.getItem('token')) {
+          scheduleReconnect(get().connect);
+        }
+      }
+    })();
+
+    connectionAttempt = attempt;
+    try {
+      await attempt;
+    } finally {
+      if (connectionAttempt === attempt) connectionAttempt = null;
+    }
   },
 
   disconnect: () => {

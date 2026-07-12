@@ -126,12 +126,12 @@ The current key directory is trusted: the server stores mutable public keys and 
 - Contact keys are not fingerprint-verified, and automatic key replacement can make old history unavailable
 - JWT tokens expire after 7 days
 - WebSocket connections are authenticated
-- WebSocket authentication currently uses a token query parameter; configure proxy logs to redact it
+- WebSocket connections use short-lived, single-use tickets exchanged with the bearer token
 - Production deployments require HTTPS and a strong, private `JWT_SECRET`
 
 ## Development Notes
 
-- WebSocket auth uses the JWT in the `Authorization` header for HTTP and the `token` query param for `/api/ws`.
+- WebSocket auth exchanges the JWT for a 30-second single-use ticket at `/api/ws-ticket`.
 - Call signaling uses WebSocket event types: `call_offer`, `call_answer`, `call_ice`, `call_end`.
 - In dev, the frontend relies on the Vite proxy (`/api` -> `http://localhost:8080`) and uses same-origin in production builds.
 
@@ -149,6 +149,7 @@ The current key directory is trusted: the server stores mutable public keys and 
 | POST   | /api/messages         | Send message                              |
 | POST   | /api/messages/clear   | Clear messages                            |
 | GET    | /api/ws               | WebSocket connection                      |
+| POST   | /api/ws-ticket        | Create a single-use WebSocket ticket      |
 | POST   | /api/invites          | Create invite                             |
 | GET    | /health               | Health check                              |
 

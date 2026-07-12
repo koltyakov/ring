@@ -140,7 +140,7 @@ export default function Layout({ children }: LayoutProps) {
   // Load users first, then connect WebSocket so presence updates have targets
   useEffect(() => {
     void fetchUsers().finally(() => {
-      connect();
+      void connect();
     });
 
     return () => {
@@ -152,7 +152,7 @@ export default function Layout({ children }: LayoutProps) {
     const handleOnline = () => {
       setIsOnline(true);
       void fetchUsers();
-      connect();
+      void connect();
     };
     const handleOffline = () => {
       setIsOnline(false);

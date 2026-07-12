@@ -107,6 +107,9 @@ export const api = {
       body: JSON.stringify({ public_key: publicKey }),
     }),
 
+  createWebSocketTicket: (): Promise<{ ticket: string; expires_in: number }> =>
+    fetchWithAuth('/api/ws-ticket', { method: 'POST' }),
+
   // Messages
   getMessages: (userId: number, beforeId?: number): Promise<MessagePage> => {
     const query = beforeId ? `?before_id=${beforeId}` : '';
