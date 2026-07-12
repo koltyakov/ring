@@ -316,7 +316,16 @@ function handleWebSocketMessage(message: { id?: number; type?: string; from?: nu
     }
 
     case 'read_receipt':
-      useMessagesStore.getState().markSentMessagesAsRead(message.from ?? 0);
+      {
+        const receipt = decodeMessageData(message.data);
+        const fromId = isObject(receipt) && typeof receipt.from_id === 'number'
+          ? receipt.from_id
+          : undefined;
+        const throughId = isObject(receipt) && typeof receipt.through_id === 'number'
+          ? receipt.through_id
+          : undefined;
+        useMessagesStore.getState().markSentMessagesAsRead(message.from ?? 0, fromId, throughId);
+      }
       break;
 
     case 'clear_messages':

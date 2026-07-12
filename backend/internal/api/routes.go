@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -370,19 +371,53 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	limit := 50
-	offset := 0
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			errorResponse(w, http.StatusBadRequest, "limit must be between 1 and 100")
+			return
+		}
+		limit = parsed
+	}
 
-	messages, err := db.GetMessagesBetween(userID, otherID, limit, offset)
+	var beforeID int64
+	if value := r.URL.Query().Get("before_id"); value != "" {
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil || parsed < 1 {
+			errorResponse(w, http.StatusBadRequest, "invalid message cursor")
+			return
+		}
+		beforeID = parsed
+	}
+
+	messages, err := db.GetMessagesBetween(userID, otherID, limit, beforeID)
 	if err != nil {
 		errorResponse(w, http.StatusInternalServerError, "failed to fetch messages")
 		return
 	}
 
-	// Mark messages as read and notify sender
-	if err := db.MarkMessagesAsRead(otherID, userID); err == nil {
-		// Send read receipt via WebSocket
-		if ws.GetHub().IsOnline(otherID) {
-			readReceiptData, _ := json.Marshal(map[string]int64{"from": userID})
+	var minReadID, maxReadID int64
+	for _, message := range messages {
+		if message.SenderID != otherID || message.ReceiverID != userID || message.Read {
+			continue
+		}
+		if minReadID == 0 || message.ID < minReadID {
+			minReadID = message.ID
+		}
+		if message.ID > maxReadID {
+			maxReadID = message.ID
+		}
+	}
+
+	// Only mark incoming messages from the returned page as read.
+	if maxReadID > 0 {
+		updated, err := db.MarkMessagesAsReadRange(otherID, userID, minReadID, maxReadID)
+		if err == nil && updated > 0 && ws.GetHub().IsOnline(otherID) {
+			// Send read receipt via WebSocket
+			readReceiptData, _ := json.Marshal(map[string]int64{
+				"from_id":    minReadID,
+				"through_id": maxReadID,
+			})
 			ws.GetHub().SendMessage(otherID, ws.Message{
 				Type:      "read_receipt",
 				From:      userID,
@@ -393,7 +428,15 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	jsonResponse(w, http.StatusOK, messages)
+	var nextCursor *int64
+	if len(messages) == limit {
+		cursor := messages[len(messages)-1].ID
+		nextCursor = &cursor
+	}
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"messages":    messages,
+		"next_cursor": nextCursor,
+	})
 }
 
 func handleSendMessage(w http.ResponseWriter, r *http.Request) {
@@ -445,6 +488,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	hub := ws.GetHub()
 	if hub.IsOnline(req.ReceiverID) {
 		hub.SendMessage(req.ReceiverID, ws.Message{
+			ID:        msg.ID,
 			Type:      "message",
 			From:      senderID,
 			To:        req.ReceiverID,

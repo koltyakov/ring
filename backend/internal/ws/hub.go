@@ -53,6 +53,7 @@ type WSMessage struct {
 }
 
 type Message struct {
+	ID        int64  `json:"id,omitempty"`
 	Type      string `json:"type"`
 	From      int64  `json:"from"`
 	To        int64  `json:"to,omitempty"`

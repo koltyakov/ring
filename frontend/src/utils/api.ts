@@ -64,6 +64,11 @@ export interface Message {
   read: boolean
 }
 
+export interface MessagePage {
+  messages: Message[]
+  next_cursor: number | null
+}
+
 export const api = {
   // Auth
   register: (username: string, password: string, inviteCode: string, publicKey: string) =>
@@ -98,8 +103,10 @@ export const api = {
     }),
 
   // Messages
-  getMessages: (userId: number): Promise<Message[]> =>
-    fetchWithAuth(`/api/messages/${userId}`),
+  getMessages: (userId: number, beforeId?: number): Promise<MessagePage> => {
+    const query = beforeId ? `?before_id=${beforeId}` : '';
+    return fetchWithAuth(`/api/messages/${userId}${query}`);
+  },
 
   sendMessage: (receiverId: number, content: string, nonce: string, type: string = 'text') =>
     fetchWithAuth('/api/messages', {

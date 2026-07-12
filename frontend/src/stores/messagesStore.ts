@@ -14,13 +14,15 @@ interface MessagesState {
   loadingUserIds: Set<number>
   typingUsers: Map<number, boolean>
   unreadCounts: Map<number, number>
+  hasMoreByUser: Map<number, boolean>
   activeChatUserId: number | null
-  fetchMessages: (userId: number) => Promise<void>
+  fetchMessages: (userId: number, beforeId?: number) => Promise<void>
+  loadOlderMessages: (userId: number) => Promise<void>
   sendMessage: (receiverId: number, content: string) => Promise<void>
-  addMessage: (message: Message) => void
+  addMessage: (message: Message) => Promise<void>
   setTyping: (userId: number, typing: boolean) => void
   markIncomingMessagesAsRead: (userId: number) => void
-  markSentMessagesAsRead: (userId: number) => void
+  markSentMessagesAsRead: (userId: number, fromId?: number, throughId?: number) => void
   clearMessages: (userId: number) => Promise<void>
   clearMessagesLocal: (userId: number) => void
   getMessagesForUser: (userId: number) => DecryptedMessage[]
@@ -29,9 +31,12 @@ interface MessagesState {
   getTotalUnreadCount: () => number
   setActiveChatUserId: (userId: number | null) => void
   incrementUnreadCount: (userId: number) => void
+  reset: () => void
 }
 
-const inFlightMessageFetches = new Map<number, Promise<void>>();
+const inFlightMessageFetches = new Map<string, Promise<void>>();
+const typingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+let sessionGeneration = 0;
 
 function getCurrentUserId() {
   try {
@@ -46,10 +51,18 @@ function getCurrentUserId() {
   }
 }
 
-function sortMessagesChronologically<T extends { timestamp: string }>(messages: T[]): T[] {
+function sortMessagesChronologically<T extends { id: number; timestamp: string }>(messages: T[]): T[] {
   return [...messages].sort((a, b) => (
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || a.id - b.id
   ));
+}
+
+function mergeMessages(existing: DecryptedMessage[], incoming: DecryptedMessage[]) {
+  const byId = new Map(existing.map((message) => [message.id, message]));
+  for (const message of incoming) {
+    byId.set(message.id, { ...byId.get(message.id), ...message });
+  }
+  return sortMessagesChronologically([...byId.values()]);
 }
 
 function isSameMessage(a: Message, b: Message) {
@@ -68,10 +81,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   loadingUserIds: new Set(),
   typingUsers: new Map(),
   unreadCounts: new Map(),
+  hasMoreByUser: new Map(),
   activeChatUserId: null,
 
-  fetchMessages: async (userId: number) => {
-    const existingRequest = inFlightMessageFetches.get(userId);
+  fetchMessages: async (userId: number, beforeId?: number) => {
+    const generation = sessionGeneration;
+    const requestKey = `${generation}:${userId}:${beforeId ?? 'latest'}`;
+    const existingRequest = inFlightMessageFetches.get(requestKey);
     if (existingRequest) {
       await existingRequest;
       return;
@@ -85,13 +101,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       });
 
       try {
-        const messages = await api.getMessages(userId);
+        const page = await api.getMessages(userId, beforeId);
 
         const user = useUsersStore.getState().getUserById(userId);
-        if (!user) return;
+        if (!user || generation !== sessionGeneration) return;
 
         const decryptedMessages = await Promise.all(
-          messages.map(async (msg) => {
+          page.messages.map(async (msg) => {
             try {
               const decryptedContent = await decryptMessage(
                 { content: msg.content, nonce: msg.nonce },
@@ -104,25 +120,39 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
           })
         );
 
+        if (generation !== sessionGeneration) return;
         set((state) => {
           const nextMessages = new Map(state.messages);
-          nextMessages.set(userId, sortMessagesChronologically(decryptedMessages));
-          return { messages: nextMessages };
+          nextMessages.set(userId, mergeMessages(nextMessages.get(userId) ?? [], decryptedMessages));
+          const nextHasMore = new Map(state.hasMoreByUser);
+          nextHasMore.set(userId, page.next_cursor !== null);
+          return { messages: nextMessages, hasMoreByUser: nextHasMore };
         });
       } catch (error) {
         console.error('Failed to fetch messages:', error);
       } finally {
-        set((state) => {
-          const nextLoading = new Set(state.loadingUserIds);
-          nextLoading.delete(userId);
-          return { loadingUserIds: nextLoading };
-        });
-        inFlightMessageFetches.delete(userId);
+        if (generation === sessionGeneration) {
+          set((state) => {
+            const nextLoading = new Set(state.loadingUserIds);
+            nextLoading.delete(userId);
+            return { loadingUserIds: nextLoading };
+          });
+        }
+        inFlightMessageFetches.delete(requestKey);
       }
     })();
 
-    inFlightMessageFetches.set(userId, request);
+    inFlightMessageFetches.set(requestKey, request);
     await request;
+  },
+
+  loadOlderMessages: async (userId: number) => {
+    const messages = get().messages.get(userId) ?? [];
+    const oldestId = messages.reduce<number | undefined>((oldest, message) => (
+      oldest === undefined || message.id < oldest ? message.id : oldest
+    ), undefined);
+    if (!oldestId || get().hasMoreByUser.get(userId) === false) return;
+    await get().fetchMessages(userId, oldestId);
   },
 
   sendMessage: async (receiverId: number, content: string) => {
@@ -224,11 +254,22 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   },
 
   setTyping: (userId: number, typing: boolean) => {
+    const existingTimer = typingTimers.get(userId);
+    if (existingTimer) clearTimeout(existingTimer);
+    typingTimers.delete(userId);
+
     set((state) => {
       const newTyping = new Map(state.typingUsers);
       newTyping.set(userId, typing);
       return { typingUsers: newTyping };
     });
+
+    if (typing) {
+      typingTimers.set(userId, setTimeout(() => {
+        typingTimers.delete(userId);
+        get().setTyping(userId, false);
+      }, 5000));
+    }
   },
 
   markIncomingMessagesAsRead: (userId: number) => {
@@ -248,7 +289,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     });
   },
 
-  markSentMessagesAsRead: (userId: number) => {
+  markSentMessagesAsRead: (userId: number, fromId = 0, throughId = Number.MAX_SAFE_INTEGER) => {
     const currentUserId = getCurrentUserId();
     set((state) => {
       const newMessages = new Map(state.messages);
@@ -256,7 +297,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       if (!userMessages) return state;
 
       const updatedMessages = userMessages.map((msg) => (
-        msg.sender_id === currentUserId && msg.receiver_id === userId
+        msg.sender_id === currentUserId && msg.receiver_id === userId && msg.id >= fromId && msg.id <= throughId
           ? { ...msg, read: true }
           : msg
       ));
@@ -302,6 +343,21 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const currentCount = newUnreadCounts.get(userId) || 0;
       newUnreadCounts.set(userId, currentCount + 1);
       return { unreadCounts: newUnreadCounts };
+    });
+  },
+
+  reset: () => {
+    sessionGeneration += 1;
+    inFlightMessageFetches.clear();
+    for (const timer of typingTimers.values()) clearTimeout(timer);
+    typingTimers.clear();
+    set({
+      messages: new Map(),
+      loadingUserIds: new Set(),
+      typingUsers: new Map(),
+      unreadCounts: new Map(),
+      hasMoreByUser: new Map(),
+      activeChatUserId: null,
     });
   },
 

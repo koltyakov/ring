@@ -1,6 +1,18 @@
 import { create } from 'zustand';
 import api, { ApiError, type User } from '../utils/api';
 import { getOrCreateKeys, getPublicKeyBase64 } from '../utils/crypto';
+import { useMessagesStore } from './messagesStore';
+import { useNotificationStore } from './notificationStore';
+import { useUsersStore } from './usersStore';
+import { useWebSocketStore } from './websocketStore';
+
+function resetSessionState() {
+  useWebSocketStore.getState().disconnect();
+  useMessagesStore.getState().reset();
+  useUsersStore.getState().reset();
+  useNotificationStore.getState().clearAllNotifications();
+  sessionStorage.removeItem('ring.incomingOffer');
+}
 
 interface AuthState {
   token: string | null
@@ -99,6 +111,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    resetSessionState();
     localStorage.removeItem('token');
     set({
       token: null,

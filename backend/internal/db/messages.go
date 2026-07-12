@@ -13,7 +13,10 @@ func SaveMessage(senderID, receiverID int64, msgType string, content, nonce []by
 		return nil, err
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
 	return GetMessageByID(id)
 }
 
@@ -33,14 +36,15 @@ func GetMessageByID(id int64) (*Message, error) {
 	return &msg, nil
 }
 
-func GetMessagesBetween(userID1, userID2 int64, limit, offset int) ([]Message, error) {
+func GetMessagesBetween(userID1, userID2 int64, limit int, beforeID int64) ([]Message, error) {
 	rows, err := DB.Query(
 		`SELECT id, sender_id, receiver_id, type, content, nonce, timestamp, read 
 		 FROM messages 
-		 WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)
-		 ORDER BY timestamp DESC
-		 LIMIT ? OFFSET ?`,
-		userID1, userID2, userID2, userID1, limit, offset,
+		 WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))
+		   AND (? = 0 OR id < ?)
+		 ORDER BY id DESC
+		 LIMIT ?`,
+		userID1, userID2, userID2, userID1, beforeID, beforeID, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -83,12 +87,16 @@ func GetUnreadMessagesForUser(userID int64) ([]Message, error) {
 	return messages, rows.Err()
 }
 
-func MarkMessagesAsRead(senderID, receiverID int64) error {
-	_, err := DB.Exec(
-		"UPDATE messages SET read = TRUE WHERE sender_id = ? AND receiver_id = ? AND read = FALSE",
-		senderID, receiverID,
+func MarkMessagesAsReadRange(senderID, receiverID, fromID, throughID int64) (int64, error) {
+	result, err := DB.Exec(
+		`UPDATE messages SET read = TRUE
+		 WHERE sender_id = ? AND receiver_id = ? AND read = FALSE AND id BETWEEN ? AND ?`,
+		senderID, receiverID, fromID, throughID,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func DeleteMessagesBetween(userID1, userID2 int64) error {

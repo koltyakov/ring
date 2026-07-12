@@ -7,16 +7,19 @@ interface UsersState {
   fetchUsers: () => Promise<void>
   updateUserStatus: (userId: number, online: boolean) => void
   getUserById: (userId: number) => User | undefined
+  reset: () => void
 }
 
 // Queue presence updates that arrive before users are loaded
 const _pendingPresence = new Map<number, boolean>();
+let sessionGeneration = 0;
 
 export const useUsersStore = create<UsersState>((set, get) => ({
   users: [],
   isLoading: false,
 
   fetchUsers: async () => {
+    const generation = sessionGeneration;
     set({ isLoading: true });
     try {
       const users = await api.getUsers();
@@ -36,10 +39,12 @@ export const useUsersStore = create<UsersState>((set, get) => ({
         _pendingPresence.clear();
       }
 
-      set({ users: filteredUsers, isLoading: false });
+      if (generation === sessionGeneration) {
+        set({ users: filteredUsers, isLoading: false });
+      }
     } catch (error) {
       console.error('Failed to fetch users:', error);
-      set({ isLoading: false });
+      if (generation === sessionGeneration) set({ isLoading: false });
     }
   },
 
@@ -61,5 +66,11 @@ export const useUsersStore = create<UsersState>((set, get) => ({
 
   getUserById: (userId: number) => {
     return get().users.find(u => u.id === userId);
+  },
+
+  reset: () => {
+    sessionGeneration += 1;
+    _pendingPresence.clear();
+    set({ users: [], isLoading: false });
   },
 }));

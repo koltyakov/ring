@@ -16,7 +16,13 @@ export default function ChatPage() {
   const isConnected = useWebSocketStore(state => state.isConnected);
   const setActiveChatUserId = useMessagesStore(state => state.setActiveChatUserId);
   const markIncomingMessagesAsRead = useMessagesStore(state => state.markIncomingMessagesAsRead);
-  const totalUnreadCount = useMessagesStore(state => state.getTotalUnreadCount)();
+  const totalUnreadCount = useMessagesStore(state => {
+    let total = 0;
+    state.unreadCounts.forEach((count) => {
+      total += count;
+    });
+    return total;
+  });
   
   // Track active chat and mark messages as read
   useEffect(() => {

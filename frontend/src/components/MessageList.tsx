@@ -12,6 +12,8 @@ export default function MessageList({ userId }: MessageListProps) {
   const messages = useMessagesStore(state => state.getMessagesForUser(userId));
   const isLoading = useMessagesStore(state => state.isUserLoading(userId));
   const fetchMessages = useMessagesStore(state => state.fetchMessages);
+  const loadOlderMessages = useMessagesStore(state => state.loadOlderMessages);
+  const hasMore = useMessagesStore(state => state.hasMoreByUser.get(userId) ?? true);
   const typing = useMessagesStore(state => state.typingUsers.get(userId));
   const user = useUsersStore(state => state.getUserById(userId));
 
@@ -20,9 +22,10 @@ export default function MessageList({ userId }: MessageListProps) {
     fetchMessages(userId);
   }, [userId, user?.public_key, fetchMessages]);
 
+  const latestMessageId = messages[messages.length - 1]?.id;
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, typing]);
+  }, [latestMessageId, typing]);
 
   let currentUserId = 0;
   try {
@@ -62,6 +65,18 @@ export default function MessageList({ userId }: MessageListProps) {
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+      {messages.length > 0 && hasMore && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={() => void loadOlderMessages(userId)}
+            disabled={isLoading}
+            className="rounded-full bg-slate-800 px-4 py-2 text-xs text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-50"
+          >
+            {isLoading ? 'Loading...' : 'Load older messages'}
+          </button>
+        </div>
+      )}
       {visibleMessages.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
