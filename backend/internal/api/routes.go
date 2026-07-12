@@ -8,8 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,9 +25,15 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize:  1024,
 	HandshakeTimeout: 10 * time.Second,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins in development
+		return IsOriginAllowed(r)
 	},
 }
+
+const (
+	standardRequestLimit = 16 << 10
+	messageRequestLimit  = 128 << 10
+	maximumMessageSize   = 64 << 10
+)
 
 // JSON response helper
 func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
@@ -36,6 +45,52 @@ func jsonResponse(w http.ResponseWriter, status int, data interface{}) {
 // Error response helper
 func errorResponse(w http.ResponseWriter, status int, message string) {
 	jsonResponse(w, status, map[string]string{"error": message})
+}
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, destination interface{}, limit int64) error {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(destination); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return errors.New("request body must contain one JSON object")
+		}
+		return err
+	}
+	return nil
+}
+
+func validPublicKey(key []byte) bool {
+	return len(key) == 32 || len(key) == 65
+}
+
+func spaFileHandler(staticDir string) http.Handler {
+	fileServer := http.FileServer(http.Dir(staticDir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			http.NotFound(w, r)
+			return
+		}
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		cleanPath := strings.TrimPrefix(filepath.Clean(r.URL.Path), string(filepath.Separator))
+		requestedPath := filepath.Join(staticDir, cleanPath)
+		if info, err := os.Stat(requestedPath); err == nil && !info.IsDir() {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		if filepath.Ext(cleanPath) != "" {
+			http.NotFound(w, r)
+			return
+		}
+		http.ServeFile(w, r, filepath.Join(staticDir, "index.html"))
+	})
 }
 
 // Auth middleware
@@ -87,8 +142,7 @@ func getUsername(r *http.Request) string {
 // SetupRoutes configures all HTTP routes
 func SetupRoutes(mux *http.ServeMux) {
 	// Static files
-	fs := http.FileServer(http.Dir("./static"))
-	mux.Handle("/", fs)
+	mux.Handle("/", spaFileHandler("./static"))
 
 	// API routes
 	mux.HandleFunc("/api/register", handleRegister)
@@ -119,8 +173,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		PublicKey  string `json:"public_key"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req, standardRequestLimit); err != nil {
+		errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -129,8 +183,8 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if len(req.Password) < 6 {
-		errorResponse(w, http.StatusBadRequest, "password must be at least 6 characters")
+	if len(req.Password) < 8 || len(req.Password) > 72 {
+		errorResponse(w, http.StatusBadRequest, "password must be between 8 and 72 characters")
 		return
 	}
 
@@ -141,7 +195,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	// Decode public key
 	pubKey, err := crypto.DecodeKey(req.PublicKey)
-	if err != nil {
+	if err != nil || !validPublicKey(pubKey) {
 		errorResponse(w, http.StatusBadRequest, "invalid public key")
 		return
 	}
@@ -190,8 +244,8 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req, standardRequestLimit); err != nil {
+		errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -204,17 +258,26 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusBadRequest, "password required")
 		return
 	}
+	if len(req.Password) > 72 {
+		errorResponse(w, http.StatusBadRequest, "invalid credentials")
+		return
+	}
 
 	// Get user with password hash
 	user, err := db.GetUserByUsernameWithPassword(req.Username)
-	if err != nil || user == nil {
-		errorResponse(w, http.StatusNotFound, "user not found")
+	if err != nil {
+		log.Printf("Failed to load user during login: %v", err)
+		errorResponse(w, http.StatusInternalServerError, "login failed")
+		return
+	}
+	if user == nil {
+		errorResponse(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
 	// Verify password
 	if !db.CheckPassword(req.Password, user.PasswordHash) {
-		errorResponse(w, http.StatusUnauthorized, "invalid password")
+		errorResponse(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
 
@@ -240,8 +303,8 @@ func handleValidateInvite(w http.ResponseWriter, r *http.Request) {
 		Code string `json:"code"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req, standardRequestLimit); err != nil {
+		errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -317,8 +380,8 @@ func handleUpdatePublicKey(w http.ResponseWriter, r *http.Request) {
 		PublicKey string `json:"public_key"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req, standardRequestLimit); err != nil {
+		errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -329,7 +392,7 @@ func handleUpdatePublicKey(w http.ResponseWriter, r *http.Request) {
 
 	// Decode public key
 	pubKey, err := crypto.DecodeKey(req.PublicKey)
-	if err != nil {
+	if err != nil || !validPublicKey(pubKey) {
 		errorResponse(w, http.StatusBadRequest, "invalid public key")
 		return
 	}
@@ -449,8 +512,8 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		Nonce      string `json:"nonce"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		errorResponse(w, http.StatusBadRequest, err.Error())
+	if err := decodeJSON(w, r, &req, messageRequestLimit); err != nil {
+		errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}
 
@@ -461,13 +524,13 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Decode content and nonce
 	content, err := crypto.DecodeKey(req.Content)
-	if err != nil {
+	if err != nil || len(content) > maximumMessageSize {
 		errorResponse(w, http.StatusBadRequest, "invalid content encoding")
 		return
 	}
 
 	nonce, err := crypto.DecodeKey(req.Nonce)
-	if err != nil {
+	if err != nil || len(nonce) != 12 {
 		errorResponse(w, http.StatusBadRequest, "invalid nonce encoding")
 		return
 	}
@@ -475,6 +538,10 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	msgType := req.Type
 	if msgType == "" {
 		msgType = "text"
+	}
+	if msgType != "text" {
+		errorResponse(w, http.StatusBadRequest, "unsupported message type")
+		return
 	}
 
 	// Save to database
@@ -512,7 +579,7 @@ func handleClearMessages(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		OtherUserID int64 `json:"other_user_id"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := decodeJSON(w, r, &req, standardRequestLimit); err != nil {
 		errorResponse(w, http.StatusBadRequest, "invalid request")
 		return
 	}

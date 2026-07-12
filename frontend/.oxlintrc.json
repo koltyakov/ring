@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["eslint", "typescript", "react", "oxc"],
+  "plugins": ["eslint", "typescript", "react", "jsx-a11y", "oxc"],
   "categories": {
     "correctness": "error",
     "suspicious": "error"
@@ -8,6 +8,7 @@
   "rules": {
     "eslint/no-unused-vars": "error",
     "eslint/no-underscore-dangle": "off",
+    "jsx-a11y/media-has-caption": "off",
     "react/react-in-jsx-scope": "off"
   },
   "ignorePatterns": ["dist", "node_modules"]

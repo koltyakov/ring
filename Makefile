@@ -42,7 +42,7 @@ dev:
 	@make -j2 dev-backend dev-frontend
 
 dev-backend:
-	cd backend && DEBUG=true go run cmd/main.go
+	cd backend && ALLOWED_ORIGINS=$${ALLOWED_ORIGINS:-http://localhost:5173} go run cmd/main.go
 
 dev-frontend:
 	cd frontend && npm run dev

@@ -510,15 +510,23 @@ export default function Layout({ children }: LayoutProps) {
       {/* Incoming Call Modal */}
       {pendingCall && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
-          <div className="bg-slate-900 rounded-2xl p-8 max-w-sm w-full text-center">
+          <dialog
+            open
+            aria-modal="true"
+            aria-labelledby="incoming-call-title"
+            aria-describedby="incoming-call-description"
+            className="m-auto bg-slate-900 rounded-2xl p-8 max-w-sm w-full text-center text-white"
+          >
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4">
               {(caller?.username?.[0] ?? `#${pendingCall.from}`[0] ?? '?').toUpperCase()}
             </div>
-            <h2 className="text-xl font-bold text-white mb-2">{caller?.username ?? `User #${pendingCall.from}`}</h2>
-            <p className="text-slate-400 mb-6">Incoming call...</p>
+            <h2 id="incoming-call-title" className="text-xl font-bold text-white mb-2">{caller?.username ?? `User #${pendingCall.from}`}</h2>
+            <p id="incoming-call-description" className="text-slate-400 mb-6">Incoming call...</p>
             
             <div className="flex items-center justify-center gap-4">
               <button
+                type="button"
+                aria-label="Decline call"
                 onClick={handleDeclineCall}
                 className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center"
               >
@@ -527,6 +535,9 @@ export default function Layout({ children }: LayoutProps) {
                 </svg>
               </button>
               <button
+                type="button"
+                aria-label="Accept call"
+                autoFocus
                 onClick={handleAcceptCall}
                 className="w-14 h-14 rounded-full bg-green-500 text-white flex items-center justify-center"
               >
@@ -535,7 +546,7 @@ export default function Layout({ children }: LayoutProps) {
                 </svg>
               </button>
             </div>
-          </div>
+          </dialog>
         </div>
       )}
     </div>

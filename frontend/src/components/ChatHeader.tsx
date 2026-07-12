@@ -14,6 +14,8 @@ export default function ChatHeader({ userId }: ChatHeaderProps) {
   return (
     <div className="glass border-b border-slate-800 px-4 py-3 flex items-center gap-3 pt-safe shrink-0">
       <button
+        type="button"
+        aria-label="Back to conversations"
         onClick={() => navigate('/')}
         className="p-2 -ml-2 rounded-full hover:bg-slate-800 transition-colors"
       >
@@ -39,6 +41,8 @@ export default function ChatHeader({ userId }: ChatHeaderProps) {
       </div>
 
       <button
+        type="button"
+        aria-label={`Call ${user.username}`}
         onClick={() => navigate(`/call/${userId}`)}
         className="p-2 rounded-full hover:bg-slate-800 transition-colors text-primary-500"
       >

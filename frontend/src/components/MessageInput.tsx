@@ -103,15 +103,17 @@ export default function MessageInput({ userId }: MessageInputProps) {
   return (
     <form onSubmit={handleSubmit} className="glass border-t border-slate-800 p-3 pb-safe">
       {error && (
-        <div
-          className="text-xs text-red-400 text-center mb-2 cursor-pointer"
+        <button
+          type="button"
+          className="block w-full text-xs text-red-400 text-center mb-2 cursor-pointer"
           onClick={() => void handleRetrySend()}
         >
           {error}
-        </div>
+        </button>
       )}
       <div className="flex items-center gap-2 bg-slate-800/50 rounded-full px-4 py-2">
         <input
+          aria-label="Message"
           type="text"
           value={message}
           onChange={(e) => {
@@ -124,6 +126,7 @@ export default function MessageInput({ userId }: MessageInputProps) {
         />
         <button
           type="submit"
+          aria-label={isSending ? 'Sending message' : 'Send message'}
           disabled={!message.trim() || isSending}
           className="p-2 rounded-full bg-primary-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors hover:bg-primary-500"
         >

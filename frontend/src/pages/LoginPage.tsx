@@ -27,7 +27,11 @@ export default function LoginPage() {
         setIsValidating(false);
       }
     } else {
-      await login(username, password);
+      try {
+        await login(username, password);
+      } catch {
+        // The store exposes the error to the form.
+      }
     }
   };
 
@@ -54,10 +58,12 @@ export default function LoginPage() {
           )}
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label htmlFor="username" className="block text-sm font-medium text-slate-300 mb-1">
               Username
             </label>
             <input
+              id="username"
+              autoComplete="username"
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -70,26 +76,31 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1">
+            <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-1">
               Password
             </label>
             <input
+              id="password"
+              autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'register' ? 'Create a password (min 6 chars)' : 'Enter your password'}
+              placeholder={mode === 'register' ? 'Create a password (8-72 chars)' : 'Enter your password'}
               className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
               required
-              minLength={6}
+              minLength={mode === 'register' ? 8 : undefined}
+              maxLength={72}
             />
           </div>
 
           {mode === 'register' && (
             <div>
-              <label className="block text-sm font-medium text-slate-300 mb-1">
+              <label htmlFor="invite-code" className="block text-sm font-medium text-slate-300 mb-1">
                 Invite Code <span className="text-slate-500">(optional for first user)</span>
               </label>
               <input
+                id="invite-code"
+                autoComplete="off"
                 type="text"
                 value={inviteCode}
                 onChange={(e) => setInviteCode(e.target.value)}
@@ -123,6 +134,7 @@ export default function LoginPage() {
         {/* Toggle mode */}
         <div className="text-center">
           <button
+            type="button"
             onClick={handleModeSwitch}
             className="text-sm text-slate-400 hover:text-white transition-colors"
           >

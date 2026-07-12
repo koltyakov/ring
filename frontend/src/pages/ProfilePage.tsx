@@ -113,8 +113,9 @@ export default function ProfilePage() {
       </div>
 
       {/* Logout */}
-      <div
-        className="mt-auto mb-3 rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 cursor-pointer select-none"
+      <button
+        type="button"
+        className="mt-auto mb-3 w-full rounded-xl border border-slate-800 bg-slate-900/40 px-4 py-3 cursor-pointer select-none text-left"
         onClick={handleVersionBlockTap}
         aria-label="Build info"
         title={isForcingUpgrade ? 'Checking for update...' : 'Build info'}
@@ -131,7 +132,7 @@ export default function ProfilePage() {
             Checking for update...
           </p>
         )}
-      </div>
+      </button>
 
       <button
         onClick={logout}

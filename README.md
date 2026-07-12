@@ -1,10 +1,10 @@
-# ChatApp
+# Ring
 
-A lightweight, secure, end-to-end encrypted chat and voice/video calling application built with Go and React.
+A lightweight encrypted chat and voice/video calling application built with Go and React.
 
 ## Features
 
-- End-to-End Encryption - All messages encrypted using Curve25519 + AES-GCM
+- Client-Side Encryption - Messages encrypted using X25519/P-256 + AES-GCM
 - Mobile First - Optimized for mobile devices, works as PWA
 - Voice & Video Calls - WebRTC-powered peer-to-peer calling
 - Lightweight & Fast - Go backend with SQLite, React frontend
@@ -15,14 +15,14 @@ A lightweight, secure, end-to-end encrypted chat and voice/video calling applica
 
 **Backend:**
 
-- Go 1.23+
+- Go 1.25+
 - net/http (standard library)
 - SQLite (WAL mode)
 - Gorilla WebSocket
 
 **Frontend:**
 
-- React 18 + TypeScript
+- React 19 + TypeScript
 - Tailwind CSS
 - Vite
 - Zustand (state management)
@@ -31,17 +31,16 @@ A lightweight, secure, end-to-end encrypted chat and voice/video calling applica
 
 ### Prerequisites
 
-- Go 1.23 or later
-- Node.js 18 or later
-- npm or yarn
+- Go 1.25 or later
+- Node.js 24.12 and npm 11.6 (pinned with Volta)
 
 ### Installation
 
 1. Clone the repository:
 
 ```bash
-git clone <repo-url>
-cd chatapp
+git clone https://github.com/koltyakov/ring.git
+cd ring
 ```
 
 2. Install dependencies:
@@ -78,22 +77,18 @@ The frontend will be built into `backend/static/` and served by the Go server on
 
 ## First Time Setup
 
-1. Access the app at `http://localhost:8080`
-2. Create the first user (invite not required for the very first account):
+1. Access the app at `http://localhost:5173` during development or `http://localhost:8080` after a production build.
+2. Create the first user. An invite is not required while the database has no users:
 
 ```bash
-# Option 1: Use the bootstrap helper (creates or updates a user)
-make bootstrap USER=admin PASS=yourpassword
-
-# Option 2: Start fresh and register normally (first user doesn't need invite)
-rm backend/chatapp.db
-cd backend && go run cmd/main.go
-# Then open http://localhost:5173 and sign up with any username/password
+# Start fresh if necessary, then register through the application
+make db-reset
+make dev
 ```
 
 ### Creating Invite Codes
 
-Once logged in as an admin, use the API:
+Any authenticated user can create an invite through the profile screen or API:
 
 ```bash
 curl -X POST http://localhost:8080/api/invites \
@@ -115,19 +110,24 @@ make create-invite
 - Shared secrets derived using X25519
 - Messages encrypted with AES-GCM using the shared secret
 
+The current key directory is trusted: the server stores mutable public keys and clients do not yet verify fingerprints or key changes. The protocol also has no forward secrecy or multi-device key history. It protects content from passive database inspection, but it is not designed to resist a malicious key-distribution server.
+
 ### WebRTC Calling
 
 - Peer-to-peer connection after signaling
-- STUN servers for NAT traversal
+- STUN servers for NAT discovery
 - Supports voice and video
-- End-to-end encrypted media
+- DTLS-SRTP encrypted media
+- Optional TURN relay support for restrictive networks
 
 ## Security Considerations
 
-- All messages are E2E encrypted - server cannot read content
-- Keys are stored in browser's localStorage (consider using more secure storage in production)
+- Authentication and private-key material are currently stored in browser `localStorage`; an origin-level script compromise can access both
+- Contact keys are not fingerprint-verified, and automatic key replacement can make old history unavailable
 - JWT tokens expire after 7 days
 - WebSocket connections are authenticated
+- WebSocket authentication currently uses a token query parameter; configure proxy logs to redact it
+- Production deployments require HTTPS and a strong, private `JWT_SECRET`
 
 ## Development Notes
 
@@ -145,11 +145,11 @@ make create-invite
 | GET    | /api/users            | List all users         |
 | GET    | /api/users/me         | Get current user       |
 | POST   | /api/users/update-key | Update public key      |
-| GET    | /api/messages/:userID | Get messages with user |
+| GET    | /api/messages/:userID | Get a message page (`before_id`, `limit`) |
 | POST   | /api/messages         | Send message           |
 | POST   | /api/messages/clear   | Clear messages         |
 | GET    | /api/ws               | WebSocket connection   |
-| POST   | /api/invites          | Create invite (admin)  |
+| POST   | /api/invites          | Create invite          |
 | GET    | /health               | Health check           |
 
 ### Environment Variables
@@ -158,11 +158,18 @@ make create-invite
 
 - `PORT` - Server port (default: 8080)
 - `JWT_SECRET` - Required JWT signing secret (at least 32 characters)
-- `DEBUG` - Enable debug mode
+- `DB_PATH` - SQLite path (default: `chatapp.db` relative to the backend process)
+- `ALLOWED_ORIGINS` - Comma-separated additional HTTP origins; same-origin requests are always allowed
 
-**Frontend:**
+**Frontend build:**
 
-- Uses dev proxy in Vite and same-origin API in production (no required env vars)
+- `VITE_API_BASE_URL` - Optional API origin when it differs from the page origin
+- `VITE_WS_BASE_URL` - Optional WebSocket origin when it differs from the page origin
+- `VITE_TURN_URL` - Optional `turn:` or `turns:` relay URL
+- `VITE_TURN_USERNAME` - TURN username
+- `VITE_TURN_CREDENTIAL` - TURN credential
+
+For production, serve the frontend and API over HTTPS, set a persistent `DB_PATH`, configure a WAL-aware SQLite backup, and provide TURN credentials if calls must work across restrictive networks. `/health` checks database readiness, and the server drains HTTP requests on `SIGTERM` and `SIGINT`.
 
 ## License
 

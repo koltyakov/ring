@@ -3,9 +3,15 @@ import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useUsersStore } from '../stores/usersStore';
 import { useWebSocketStore } from '../stores/websocketStore';
 
+const turnUrl = (import.meta.env.VITE_TURN_URL as string | undefined)?.trim();
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
+  ...(turnUrl ? [{
+    urls: turnUrl,
+    username: (import.meta.env.VITE_TURN_USERNAME as string | undefined) ?? '',
+    credential: (import.meta.env.VITE_TURN_CREDENTIAL as string | undefined) ?? '',
+  }] : []),
 ];
 
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
@@ -320,6 +326,7 @@ export default function CallPage() {
   const iceCandidateBufferRef = useRef<RTCIceCandidateInit[]>([]);
   const isMutedRef = useRef(false);
   const isVideoEnabledRef = useRef(false);
+  const isTogglingVideoRef = useRef(false);
   const callIdRef = useRef<string | null>(null);
   const wasConnectedRef = useRef(false);
 
@@ -982,10 +989,21 @@ export default function CallPage() {
     if (!stream) return;
 
     if (!isVideoEnabledRef.current) {
+      if (isTogglingVideoRef.current) return;
+      isTogglingVideoRef.current = true;
+      let videoStream: MediaStream | null = null;
+      let track: MediaStreamTrack | null = null;
       try {
-        const videoStream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS });
-        const [track] = videoStream.getVideoTracks();
-        if (!track) return;
+        videoStream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_CONSTRAINTS });
+        [track] = videoStream.getVideoTracks();
+        if (!track) {
+          videoStream.getTracks().forEach((mediaTrack) => mediaTrack.stop());
+          return;
+        }
+        if (cleanedUpRef.current || localStreamRef.current !== stream) {
+          videoStream.getTracks().forEach((mediaTrack) => mediaTrack.stop());
+          return;
+        }
         if ('contentHint' in track) {
           track.contentHint = 'detail';
         }
@@ -1008,8 +1026,17 @@ export default function CallPage() {
         setIsVideoEnabled(true);
         persistCallMediaPrefs({ videoEnabled: true });
       } catch (error) {
+        if (track) {
+          stream.removeTrack(track);
+          track.stop();
+          const sender = pc?.getSenders().find((candidate) => candidate.track === track);
+          if (sender) void pc?.removeTrack(sender);
+        } else {
+          videoStream?.getTracks().forEach((mediaTrack) => mediaTrack.stop());
+        }
         console.warn('[Call] Failed to enable video:', error);
       } finally {
+        isTogglingVideoRef.current = false;
         makingOfferRef.current = false;
       }
       return;
@@ -1078,7 +1105,7 @@ export default function CallPage() {
         </span>
         <div className="flex items-center gap-2">
           <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-          <span className="text-xs">{isConnected ? 'Secure' : 'Reconnecting'}</span>
+          <span className="text-xs">{isConnected ? 'Signaling connected' : 'Reconnecting'}</span>
         </div>
       </div>
 
@@ -1127,6 +1154,8 @@ export default function CallPage() {
       <div className="glass px-6 pt-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
         <div className="flex items-center justify-center gap-6">
           <button
+            type="button"
+            aria-label={isMuted ? 'Unmute microphone' : 'Mute microphone'}
             onClick={toggleMute}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
               isMuted ? 'bg-red-500 text-white' : 'bg-slate-700 text-white'
@@ -1146,6 +1175,8 @@ export default function CallPage() {
           </button>
 
           <button
+            type="button"
+            aria-label={isVideoEnabled ? 'Turn camera off' : 'Turn camera on'}
             onClick={() => void toggleVideo()}
             className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors ${
               !isVideoEnabled ? 'bg-red-500 text-white' : 'bg-slate-700 text-white'
@@ -1164,6 +1195,8 @@ export default function CallPage() {
           </button>
 
           <button
+            type="button"
+            aria-label="End call"
             onClick={handleEndCall}
             className="w-16 h-16 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg shadow-red-500/30"
           >
