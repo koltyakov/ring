@@ -22,6 +22,9 @@ func main() {
 	if err := api.ConfigureAllowedOrigins(os.Getenv("ALLOWED_ORIGINS")); err != nil {
 		log.Fatal(err)
 	}
+	if err := api.ConfigureTrustedProxyHeaders(os.Getenv("TRUST_PROXY_HEADERS")); err != nil {
+		log.Fatal("Invalid TRUST_PROXY_HEADERS value:", err)
+	}
 
 	// Initialize database
 	databasePath := os.Getenv("DB_PATH")

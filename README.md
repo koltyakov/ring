@@ -101,6 +101,12 @@ Or via Make:
 make create-invite
 ```
 
+To reset an existing account password without putting it in shell history or process arguments:
+
+```bash
+make reset-password USER=alice
+```
+
 ## Architecture
 
 ### E2E Encryption
@@ -161,6 +167,7 @@ The current key directory is trusted: the server stores mutable public keys and 
 - `JWT_SECRET` - Required JWT signing secret (at least 32 characters)
 - `DB_PATH` - SQLite path (default: `chatapp.db` relative to the backend process)
 - `ALLOWED_ORIGINS` - Comma-separated additional HTTP origins; same-origin requests are always allowed
+- `TRUST_PROXY_HEADERS` - Set to `true` only behind a trusted proxy that replaces forwarding headers
 
 **Frontend build:**
 

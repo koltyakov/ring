@@ -17,6 +17,14 @@ var (
 	ErrUsernameExists = errors.New("username already exists")
 )
 
+var dummyPasswordHash = func() string {
+	hash, err := bcrypt.GenerateFromPassword([]byte("not-a-real-password"), bcrypt.DefaultCost)
+	if err != nil {
+		panic(err)
+	}
+	return string(hash)
+}()
+
 // HashPassword hashes a password using bcrypt
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
@@ -27,6 +35,10 @@ func HashPassword(password string) (string, error) {
 func CheckPassword(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
+}
+
+func CheckPasswordForMissingUser(password string) {
+	_ = bcrypt.CompareHashAndPassword([]byte(dummyPasswordHash), []byte(password))
 }
 
 func CreateUser(username string, passwordHash string, publicKey []byte) (*User, error) {
@@ -189,4 +201,19 @@ func UpdateLastSeen(userID int64) error {
 func UpdatePublicKey(userID int64, publicKey []byte) error {
 	_, err := DB.Exec("UPDATE users SET public_key = ? WHERE id = ?", publicKey, userID)
 	return err
+}
+
+func UpdatePasswordHash(userID int64, passwordHash string) error {
+	result, err := DB.Exec("UPDATE users SET password_hash = ? WHERE id = ?", passwordHash, userID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

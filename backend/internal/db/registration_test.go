@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -124,5 +125,26 @@ func TestForeignKeysAreEnforced(t *testing.T) {
 	initTestDB(t)
 	if _, err := SaveMessage(100, 200, "text", []byte("ciphertext"), make([]byte, 12)); err == nil {
 		t.Fatal("message with nonexistent users was accepted")
+	}
+}
+
+func TestUpdatePasswordHashRequiresExistingUser(t *testing.T) {
+	initTestDB(t)
+	user, err := RegisterUser(context.Background(), "alice", "old-hash", make([]byte, 32), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdatePasswordHash(user.ID, "new-hash"); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := GetUserByUsernameWithPassword("alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.PasswordHash != "new-hash" {
+		t.Fatalf("password hash was not updated: %q", updated.PasswordHash)
+	}
+	if err := UpdatePasswordHash(999, "hash"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows, got %v", err)
 	}
 }

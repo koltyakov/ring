@@ -140,9 +140,9 @@ func SetupRoutes(mux *http.ServeMux) {
 	mux.Handle("/", spaFileHandler("./static"))
 
 	// API routes
-	mux.HandleFunc("/api/register", handleRegister)
-	mux.HandleFunc("/api/login", handleLogin)
-	mux.HandleFunc("/api/invite/validate", handleValidateInvite)
+	mux.HandleFunc("/api/register", rateLimitByIP(registrationIPLimiter, handleRegister))
+	mux.HandleFunc("/api/login", rateLimitByIP(loginIPLimiter, handleLogin))
+	mux.HandleFunc("/api/invite/validate", rateLimitByIP(inviteValidationLimiter, handleValidateInvite))
 
 	// Protected routes
 	mux.HandleFunc("/api/users", authMiddleware(handleGetUsers))
@@ -151,9 +151,9 @@ func SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/messages", authMiddleware(handleMessages))
 	mux.HandleFunc("/api/messages/", authMiddleware(handleMessages))
 	mux.HandleFunc("/api/messages/clear", authMiddleware(handleClearMessages))
-	mux.HandleFunc("/api/ws-ticket", authMiddleware(handleCreateWebSocketTicket))
+	mux.HandleFunc("/api/ws-ticket", authMiddleware(rateLimitByUser(webSocketTicketLimiter, handleCreateWebSocketTicket)))
 	mux.HandleFunc("/api/ws", handleWebSocket)
-	mux.HandleFunc("/api/invites", authMiddleware(handleCreateInvite))
+	mux.HandleFunc("/api/invites", authMiddleware(rateLimitByUser(inviteCreationLimiter, handleCreateInvite)))
 }
 
 func handleRegister(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +258,11 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusBadRequest, "invalid credentials")
 		return
 	}
+	accountKey := strings.ToLower(req.Username)
+	if allowed, retryAfter := loginAccountLimiter.allow(accountKey, time.Now()); !allowed {
+		tooManyRequests(w, retryAfter)
+		return
+	}
 
 	// Get user with password hash
 	user, err := db.GetUserByUsernameWithPassword(req.Username)
@@ -267,6 +272,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user == nil {
+		db.CheckPasswordForMissingUser(req.Password)
 		errorResponse(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
@@ -276,6 +282,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
+	loginAccountLimiter.reset(accountKey)
 
 	token, err := auth.GenerateToken(user.ID, user.Username)
 	if err != nil {

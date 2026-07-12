@@ -1,4 +1,4 @@
-.PHONY: all build frontend backend run clean dev dev-backend dev-frontend setup check test lint typecheck format format-check create-invite bootstrap db-reset help
+.PHONY: all build frontend backend run clean dev dev-backend dev-frontend setup check test lint typecheck format format-check create-invite reset-password db-reset help
 
 # Default target
 all: build
@@ -64,15 +64,16 @@ clean:
 	rm -rf frontend/node_modules
 	rm -rf frontend/dist
 
-# Create admin invite
+# Create invite
 create-invite:
 	@curl -s -X POST http://localhost:8080/api/invites \
 		-H "Authorization: Bearer $(shell cat .token 2>/dev/null || echo '')" \
 		| grep -o '"code":"[^"]*"' | cut -d'"' -f4
 
-# Bootstrap first user (no invite needed) - usage: make bootstrap USER=admin PASS=secret123
-bootstrap:
-	@cd backend && go run cmd/bootstrap/main.go $(USER) $(PASS)
+# Reset an existing user's password; prompts securely when run in a terminal.
+reset-password:
+	@test -n "$(USER)" || (echo "Usage: make reset-password USER=<username>" && exit 2)
+	@cd backend && go run cmd/reset-password/main.go "$(USER)"
 
 # Database operations
 db-reset:
@@ -90,6 +91,7 @@ help:
 	@echo "  typecheck    - Type-check the frontend"
 	@echo "  format       - Format frontend files with Oxfmt"
 	@echo "  format-check - Verify frontend formatting"
+	@echo "  reset-password - Reset an existing user's password"
 	@echo "  frontend     - Build frontend only"
 	@echo "  backend      - Build backend only"
 	@echo "  dev          - Start development servers (frontend + backend)"
