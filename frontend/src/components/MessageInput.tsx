@@ -3,7 +3,7 @@ import { useMessagesStore } from '../stores/messagesStore';
 import { useWebSocketStore } from '../stores/websocketStore';
 
 interface MessageInputProps {
-  userId: number
+  userId: number;
 }
 
 export default function MessageInput({ userId }: MessageInputProps) {
@@ -12,19 +12,19 @@ export default function MessageInput({ userId }: MessageInputProps) {
   const [error, setError] = useState<string | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
-  const sendMessage = useMessagesStore(state => state.sendMessage);
-  const sendTyping = useWebSocketStore(state => state.sendTyping);
+  const sendMessage = useMessagesStore((state) => state.sendMessage);
+  const sendTyping = useWebSocketStore((state) => state.sendTyping);
 
   const handleTyping = useCallback(() => {
     if (!typingActiveRef.current) {
       sendTyping(userId, true);
       typingActiveRef.current = true;
     }
-    
+
     if (typingTimeoutRef.current) {
       clearTimeout(typingTimeoutRef.current);
     }
-    
+
     typingTimeoutRef.current = setTimeout(() => {
       sendTyping(userId, false);
       typingActiveRef.current = false;
@@ -44,7 +44,7 @@ export default function MessageInput({ userId }: MessageInputProps) {
     };
   }, [sendTyping, userId]);
 
-  const clearMessages = useMessagesStore(state => state.clearMessages);
+  const clearMessages = useMessagesStore((state) => state.clearMessages);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,7 +134,12 @@ export default function MessageInput({ userId }: MessageInputProps) {
             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
           ) : (
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+              />
             </svg>
           )}
         </button>

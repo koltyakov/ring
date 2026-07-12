@@ -2,12 +2,12 @@ import { create } from 'zustand';
 import api, { type User } from '../utils/api';
 
 interface UsersState {
-  users: User[]
-  isLoading: boolean
-  fetchUsers: () => Promise<void>
-  updateUserStatus: (userId: number, online: boolean) => void
-  getUserById: (userId: number) => User | undefined
-  reset: () => void
+  users: User[];
+  isLoading: boolean;
+  fetchUsers: () => Promise<void>;
+  updateUserStatus: (userId: number, online: boolean) => void;
+  getUserById: (userId: number) => User | undefined;
+  reset: () => void;
 }
 
 // Queue presence updates that arrive before users are loaded
@@ -26,8 +26,8 @@ export const useUsersStore = create<UsersState>((set, get) => ({
       // Filter out current user
       const token = localStorage.getItem('token');
       const currentUserId = token ? JSON.parse(atob(token.split('.')[1])).user_id : 0;
-      const filteredUsers = users.filter(u => u.id !== currentUserId);
-      
+      const filteredUsers = users.filter((u) => u.id !== currentUserId);
+
       // Apply any queued presence updates that arrived before users loaded
       if (_pendingPresence.size > 0) {
         for (const user of filteredUsers) {
@@ -50,22 +50,20 @@ export const useUsersStore = create<UsersState>((set, get) => ({
 
   updateUserStatus: (userId: number, online: boolean) => {
     set((state) => {
-      const userExists = state.users.some(u => u.id === userId);
+      const userExists = state.users.some((u) => u.id === userId);
       if (!userExists) {
         // Users not loaded yet — queue for when fetchUsers completes
         _pendingPresence.set(userId, online);
         return state;
       }
       return {
-        users: state.users.map(u =>
-          u.id === userId ? { ...u, online } : u
-        )
+        users: state.users.map((u) => (u.id === userId ? { ...u, online } : u)),
       };
     });
   },
 
   getUserById: (userId: number) => {
-    return get().users.find(u => u.id === userId);
+    return get().users.find((u) => u.id === userId);
   },
 
   reset: () => {

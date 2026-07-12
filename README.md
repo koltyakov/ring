@@ -137,20 +137,20 @@ The current key directory is trusted: the server stores mutable public keys and 
 
 ## API Endpoints
 
-| Method | Endpoint              | Description            |
-| ------ | --------------------- | ---------------------- |
-| POST   | /api/register         | Register new user      |
-| POST   | /api/login            | Login existing user    |
-| POST   | /api/invite/validate  | Validate invite code   |
-| GET    | /api/users            | List all users         |
-| GET    | /api/users/me         | Get current user       |
-| POST   | /api/users/update-key | Update public key      |
+| Method | Endpoint              | Description                               |
+| ------ | --------------------- | ----------------------------------------- |
+| POST   | /api/register         | Register new user                         |
+| POST   | /api/login            | Login existing user                       |
+| POST   | /api/invite/validate  | Validate invite code                      |
+| GET    | /api/users            | List all users                            |
+| GET    | /api/users/me         | Get current user                          |
+| POST   | /api/users/update-key | Update public key                         |
 | GET    | /api/messages/:userID | Get a message page (`before_id`, `limit`) |
-| POST   | /api/messages         | Send message           |
-| POST   | /api/messages/clear   | Clear messages         |
-| GET    | /api/ws               | WebSocket connection   |
-| POST   | /api/invites          | Create invite          |
-| GET    | /health               | Health check           |
+| POST   | /api/messages         | Send message                              |
+| POST   | /api/messages/clear   | Clear messages                            |
+| GET    | /api/ws               | WebSocket connection                      |
+| POST   | /api/invites          | Create invite                             |
+| GET    | /health               | Health check                              |
 
 ### Environment Variables
 

@@ -7,11 +7,15 @@ const turnUrl = (import.meta.env.VITE_TURN_URL as string | undefined)?.trim();
 const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
-  ...(turnUrl ? [{
-    urls: turnUrl,
-    username: (import.meta.env.VITE_TURN_USERNAME as string | undefined) ?? '',
-    credential: (import.meta.env.VITE_TURN_CREDENTIAL as string | undefined) ?? '',
-  }] : []),
+  ...(turnUrl
+    ? [
+        {
+          urls: turnUrl,
+          username: (import.meta.env.VITE_TURN_USERNAME as string | undefined) ?? '',
+          credential: (import.meta.env.VITE_TURN_CREDENTIAL as string | undefined) ?? '',
+        },
+      ]
+    : []),
 ];
 
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
@@ -24,42 +28,42 @@ const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
 type CallState = 'connecting' | 'ringing' | 'connected' | 'ended';
 
 interface IncomingCallState {
-  from: number
-  data: unknown
-  callId?: string | null
+  from: number;
+  data: unknown;
+  callId?: string | null;
 }
 
 interface SignalEnvelope {
-  callId: string
-  description?: RTCSessionDescriptionInit
-  candidate?: RTCIceCandidateInit
+  callId: string;
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
 }
 
 interface CallAnsweredDetail {
-  from: number
-  data: unknown
-  callId?: string | null
+  from: number;
+  data: unknown;
+  callId?: string | null;
 }
 
 interface IceCandidateDetail {
-  from: number
-  candidate: unknown
-  callId?: string | null
+  from: number;
+  candidate: unknown;
+  callId?: string | null;
 }
 
 interface IncomingCallDetail {
-  from: number
-  data: unknown
-  callId?: string | null
+  from: number;
+  data: unknown;
+  callId?: string | null;
 }
 
 interface CallMediaPreferences {
-  muted: boolean
-  videoEnabled: boolean
+  muted: boolean;
+  videoEnabled: boolean;
 }
 
 interface CallResumeState {
-  connectedAt: number
+  connectedAt: number;
 }
 
 let audioCtx: AudioContext | null = null;
@@ -205,7 +209,7 @@ function readRecentCallResumeState(otherUserId: number, maxAgeMs = 120_000): boo
     if (!raw) return false;
     const parsed = JSON.parse(raw) as Partial<CallResumeState>;
     if (typeof parsed.connectedAt !== 'number') return false;
-    return (Date.now() - parsed.connectedAt) <= maxAgeMs;
+    return Date.now() - parsed.connectedAt <= maxAgeMs;
   } catch {
     return false;
   }
@@ -241,9 +245,9 @@ function decodeSignalData(value: unknown): unknown {
 }
 
 function parseSignalData(value: unknown): {
-  callId: string | null
-  description?: RTCSessionDescriptionInit
-  candidate?: RTCIceCandidateInit
+  callId: string | null;
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
 } {
   const decoded = decodeSignalData(value);
   if (!isRecord(decoded)) {
@@ -273,7 +277,11 @@ function parseSignalData(value: unknown): {
     };
   }
 
-  if (typeof decoded.candidate === 'string' || typeof decoded.sdpMid === 'string' || typeof decoded.sdpMLineIndex === 'number') {
+  if (
+    typeof decoded.candidate === 'string' ||
+    typeof decoded.sdpMid === 'string' ||
+    typeof decoded.sdpMLineIndex === 'number'
+  ) {
     return {
       callId,
       candidate: decoded as unknown as RTCIceCandidateInit,
@@ -330,7 +338,8 @@ export default function CallPage() {
   const callIdRef = useRef<string | null>(null);
   const wasConnectedRef = useRef(false);
 
-  const incomingOffer = (location.state as { incomingOffer?: IncomingCallState } | null)?.incomingOffer;
+  const incomingOffer = (location.state as { incomingOffer?: IncomingCallState } | null)
+    ?.incomingOffer;
   const displayName = user?.username ?? 'User';
   const displayInitial = displayName[0]?.toUpperCase() ?? '?';
   const currentUserId = getCurrentUserId();
@@ -367,13 +376,16 @@ export default function CallPage() {
     offerRetryIntervalRef.current = null;
   }, []);
 
-  const persistCallMediaPrefs = useCallback((next: Partial<CallMediaPreferences>) => {
-    const resolved: CallMediaPreferences = {
-      muted: next.muted ?? isMutedRef.current,
-      videoEnabled: next.videoEnabled ?? isVideoEnabledRef.current,
-    };
-    writeCallMediaPrefs(otherUserId, resolved);
-  }, [otherUserId]);
+  const persistCallMediaPrefs = useCallback(
+    (next: Partial<CallMediaPreferences>) => {
+      const resolved: CallMediaPreferences = {
+        muted: next.muted ?? isMutedRef.current,
+        videoEnabled: next.videoEnabled ?? isVideoEnabledRef.current,
+      };
+      writeCallMediaPrefs(otherUserId, resolved);
+    },
+    [otherUserId],
+  );
 
   const ensureCallId = useCallback((preferred?: string | null): string => {
     if (callIdRef.current) return callIdRef.current;
@@ -381,12 +393,15 @@ export default function CallPage() {
     return callIdRef.current;
   }, []);
 
-  const buildSignalEnvelope = useCallback((payload: Omit<SignalEnvelope, 'callId'>): SignalEnvelope => {
-    return {
-      callId: ensureCallId(),
-      ...payload,
-    };
-  }, [ensureCallId]);
+  const buildSignalEnvelope = useCallback(
+    (payload: Omit<SignalEnvelope, 'callId'>): SignalEnvelope => {
+      return {
+        callId: ensureCallId(),
+        ...payload,
+      };
+    },
+    [ensureCallId],
+  );
 
   const flushIceCandidates = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -402,66 +417,82 @@ export default function CallPage() {
     }
   }, []);
 
-  const handleRemoteDescription = useCallback(async (desc: RTCSessionDescriptionInit) => {
-    const pc = peerConnectionRef.current;
-    if (!pc) return;
+  const handleRemoteDescription = useCallback(
+    async (desc: RTCSessionDescriptionInit) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
 
-    if (desc.type === 'answer' && pc.signalingState !== 'have-local-offer') {
-      return;
-    }
-
-    await pc.setRemoteDescription(new RTCSessionDescription(desc));
-    remoteDescriptionSetRef.current = true;
-    await flushIceCandidates();
-  }, [flushIceCandidates]);
-
-  const handleRemoteOffer = useCallback(async (desc: RTCSessionDescriptionInit, remoteCallId?: string | null) => {
-    const pc = peerConnectionRef.current;
-    if (!pc) return;
-
-    const currentCallId = callIdRef.current;
-    if (currentCallId && remoteCallId && currentCallId !== remoteCallId) {
-      // Peer restarted signaling (e.g. page reload). Switch to the new call identity.
-      callIdRef.current = remoteCallId;
-      remoteDescriptionSetRef.current = false;
-      iceCandidateBufferRef.current = [];
-    }
-    clearOfferRetryInterval();
-
-    ensureCallId(remoteCallId);
-
-    const offer = new RTCSessionDescription(desc);
-    const offerCollision = offer.type === 'offer' && (makingOfferRef.current || pc.signalingState !== 'stable');
-    ignoreOfferRef.current = !politeRef.current && offerCollision;
-
-    if (ignoreOfferRef.current) {
-      return;
-    }
-
-    if (offerCollision && politeRef.current && pc.signalingState !== 'stable') {
-      try {
-        await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit);
-      } catch {
-        // Rollback can fail in some browsers.
+      if (desc.type === 'answer' && pc.signalingState !== 'have-local-offer') {
+        return;
       }
-    }
 
-    await pc.setRemoteDescription(offer);
-    remoteDescriptionSetRef.current = true;
-    await flushIceCandidates();
+      await pc.setRemoteDescription(new RTCSessionDescription(desc));
+      remoteDescriptionSetRef.current = true;
+      await flushIceCandidates();
+    },
+    [flushIceCandidates],
+  );
 
-    if (offer.type === 'offer') {
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      sendAnswer(otherUserId, buildSignalEnvelope({ description: answer }));
+  const handleRemoteOffer = useCallback(
+    async (desc: RTCSessionDescriptionInit, remoteCallId?: string | null) => {
+      const pc = peerConnectionRef.current;
+      if (!pc) return;
 
-      if (!wasConnectedRef.current && pc.connectionState !== 'connected') {
-        stopCallAudio();
-        clearRingingTimeout();
-        setCallState('connecting');
+      const currentCallId = callIdRef.current;
+      if (currentCallId && remoteCallId && currentCallId !== remoteCallId) {
+        // Peer restarted signaling (e.g. page reload). Switch to the new call identity.
+        callIdRef.current = remoteCallId;
+        remoteDescriptionSetRef.current = false;
+        iceCandidateBufferRef.current = [];
       }
-    }
-  }, [buildSignalEnvelope, clearOfferRetryInterval, clearRingingTimeout, ensureCallId, flushIceCandidates, otherUserId, sendAnswer, stopCallAudio]);
+      clearOfferRetryInterval();
+
+      ensureCallId(remoteCallId);
+
+      const offer = new RTCSessionDescription(desc);
+      const offerCollision =
+        offer.type === 'offer' && (makingOfferRef.current || pc.signalingState !== 'stable');
+      ignoreOfferRef.current = !politeRef.current && offerCollision;
+
+      if (ignoreOfferRef.current) {
+        return;
+      }
+
+      if (offerCollision && politeRef.current && pc.signalingState !== 'stable') {
+        try {
+          await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit);
+        } catch {
+          // Rollback can fail in some browsers.
+        }
+      }
+
+      await pc.setRemoteDescription(offer);
+      remoteDescriptionSetRef.current = true;
+      await flushIceCandidates();
+
+      if (offer.type === 'offer') {
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendAnswer(otherUserId, buildSignalEnvelope({ description: answer }));
+
+        if (!wasConnectedRef.current && pc.connectionState !== 'connected') {
+          stopCallAudio();
+          clearRingingTimeout();
+          setCallState('connecting');
+        }
+      }
+    },
+    [
+      buildSignalEnvelope,
+      clearOfferRetryInterval,
+      clearRingingTimeout,
+      ensureCallId,
+      flushIceCandidates,
+      otherUserId,
+      sendAnswer,
+      stopCallAudio,
+    ],
+  );
 
   const requestIceRestart = useCallback(async () => {
     const pc = peerConnectionRef.current;
@@ -557,7 +588,13 @@ export default function CallPage() {
     wasConnectedRef.current = false;
     setIsVideoEnabled(false);
     isVideoEnabledRef.current = false;
-  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearOfferRetryInterval, clearRingingTimeout, stopCallAudio]);
+  }, [
+    clearCallFailTimeout,
+    clearDisconnectGraceTimeout,
+    clearOfferRetryInterval,
+    clearRingingTimeout,
+    stopCallAudio,
+  ]);
 
   const syncTrackStates = useCallback(() => {
     const stream = localStreamRef.current;
@@ -596,13 +633,24 @@ export default function CallPage() {
         setCallDuration((value) => value + 1);
       }, 1000);
     }
-  }, [clearCallFailTimeout, clearDisconnectGraceTimeout, clearOfferRetryInterval, clearRingingTimeout, otherUserId, stopCallAudio, syncTrackStates]);
+  }, [
+    clearCallFailTimeout,
+    clearDisconnectGraceTimeout,
+    clearOfferRetryInterval,
+    clearRingingTimeout,
+    otherUserId,
+    stopCallAudio,
+    syncTrackStates,
+  ]);
 
-  const finishAndNavigateBack = useCallback((delayMs: number) => {
-    setTimeout(() => {
-      navigate(`/chat/${otherUserId}`, { replace: true });
-    }, delayMs);
-  }, [navigate, otherUserId]);
+  const finishAndNavigateBack = useCallback(
+    (delayMs: number) => {
+      setTimeout(() => {
+        navigate(`/chat/${otherUserId}`, { replace: true });
+      }, delayMs);
+    },
+    [navigate, otherUserId],
+  );
 
   const handleEndCall = useCallback(() => {
     clearCallResumeState(otherUserId);
@@ -655,7 +703,8 @@ export default function CallPage() {
       sessionOffer = null;
     }
 
-    const initialIncomingOffer = incomingOffer ?? useWebSocketStore.getState().incomingCall ?? sessionOffer;
+    const initialIncomingOffer =
+      incomingOffer ?? useWebSocketStore.getState().incomingCall ?? sessionOffer;
     const shouldResumeConnectedCall = readRecentCallResumeState(otherUserId);
     clearIncomingCall();
 
@@ -724,7 +773,10 @@ export default function CallPage() {
 
         pc.onicecandidate = (event) => {
           if (!event.candidate) return;
-          sendIceCandidate(otherUserId, buildSignalEnvelope({ candidate: event.candidate.toJSON() }));
+          sendIceCandidate(
+            otherUserId,
+            buildSignalEnvelope({ candidate: event.candidate.toJSON() }),
+          );
         };
 
         pc.onconnectionstatechange = () => {
@@ -799,7 +851,10 @@ export default function CallPage() {
             const parsed = parseSignalData(offerSource);
             if (parsed.description?.type === 'offer') {
               setCallState('connecting');
-              await handleRemoteOffer(parsed.description, initialIncomingOffer?.callId ?? parsed.callId);
+              await handleRemoteOffer(
+                parsed.description,
+                initialIncomingOffer?.callId ?? parsed.callId,
+              );
               try {
                 sessionStorage.removeItem('ring.incomingOffer');
               } catch {
@@ -839,7 +894,9 @@ export default function CallPage() {
       } catch (error) {
         console.error('[Call] Failed to initialize call:', error);
         if (!mounted) return;
-        setCallError('Unable to start the call. Check camera/microphone permissions and try again.');
+        setCallError(
+          'Unable to start the call. Check camera/microphone permissions and try again.',
+        );
         cleanup();
         navigate(`/chat/${otherUserId}`, { replace: true });
       }
@@ -852,7 +909,7 @@ export default function CallPage() {
         return;
       }
 
-      if ((Date.now() - socketWaitStartedAt) > 15_000) {
+      if (Date.now() - socketWaitStartedAt > 15_000) {
         setCallError('Secure signaling connection timed out. Please try again.');
         setCallState('ended');
         finishAndNavigateBack(1200);
@@ -901,9 +958,11 @@ export default function CallPage() {
       if (!candidate) return;
 
       if (remoteDescriptionSetRef.current && peerConnectionRef.current) {
-        void peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch((error) => {
-          console.warn('[Call] Failed to add ICE candidate:', error);
-        });
+        void peerConnectionRef.current
+          .addIceCandidate(new RTCIceCandidate(candidate))
+          .catch((error) => {
+            console.warn('[Call] Failed to add ICE candidate:', error);
+          });
       } else {
         iceCandidateBufferRef.current.push(candidate);
       }
@@ -936,15 +995,17 @@ export default function CallPage() {
       const offer = parsed.description;
       if (!offer || offer.type !== 'offer') return;
 
-      void handleRemoteOffer(offer, detail.callId ?? parsed.callId).then(() => {
-        try {
-          sessionStorage.removeItem('ring.incomingOffer');
-        } catch {
-          // ignore
-        }
-      }).catch((error) => {
-        console.error('[Call] Failed to handle remote offer:', error);
-      });
+      void handleRemoteOffer(offer, detail.callId ?? parsed.callId)
+        .then(() => {
+          try {
+            sessionStorage.removeItem('ring.incomingOffer');
+          } catch {
+            // ignore
+          }
+        })
+        .catch((error) => {
+          console.error('[Call] Failed to handle remote offer:', error);
+        });
     };
 
     window.addEventListener('call-answered', onCallAnswered);
@@ -967,7 +1028,16 @@ export default function CallPage() {
       cleanup();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clearDisconnectGraceTimeout, clearOfferRetryInterval, markConnected, otherUserId, isIncoming, persistCallMediaPrefs, sendNegotiationOffer, startOfferRetryLoop]);
+  }, [
+    clearDisconnectGraceTimeout,
+    clearOfferRetryInterval,
+    markConnected,
+    otherUserId,
+    isIncoming,
+    persistCallMediaPrefs,
+    sendNegotiationOffer,
+    startOfferRetryLoop,
+  ]);
 
   const toggleMute = useCallback(() => {
     const stream = localStreamRef.current;
@@ -1096,10 +1166,10 @@ export default function CallPage() {
         <span className="text-sm font-medium">
           {callError ?? (
             <>
-          {callState === 'connecting' && 'Connecting...'}
-          {callState === 'ringing' && 'Ringing...'}
-          {callState === 'connected' && formatDuration(callDuration)}
-          {callState === 'ended' && 'Call ended'}
+              {callState === 'connecting' && 'Connecting...'}
+              {callState === 'ringing' && 'Ringing...'}
+              {callState === 'connected' && formatDuration(callDuration)}
+              {callState === 'ended' && 'Call ended'}
             </>
           )}
         </span>
@@ -1164,12 +1234,32 @@ export default function CallPage() {
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isMuted ? (
                 <>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5a3 3 0 116 0v6a3 3 0 01-6 0V5z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 5a3 3 0 116 0v6a3 3 0 01-6 0V5z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 3l18 18"
+                  />
                 </>
               ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                />
               )}
             </svg>
           </button>
@@ -1184,11 +1274,26 @@ export default function CallPage() {
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isVideoEnabled ? (
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                />
               ) : (
                 <>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 3l18 18"
+                  />
                 </>
               )}
             </svg>
@@ -1204,7 +1309,6 @@ export default function CallPage() {
               <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
             </svg>
           </button>
-
         </div>
       </div>
     </div>

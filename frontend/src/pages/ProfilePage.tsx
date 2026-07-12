@@ -9,10 +9,10 @@ export default function ProfilePage() {
   const [isForcingUpgrade, setIsForcingUpgrade] = useState(false);
   const versionTapCountRef = useRef(0);
   const versionTapResetTimerRef = useRef<number | null>(null);
-  const buildDate = Number.isNaN(Date.parse(__APP_BUILD_TIME__)) ? null : new Date(__APP_BUILD_TIME__);
-  const buildLabel = buildDate
-    ? buildDate.toLocaleString()
-    : __APP_BUILD_TIME__;
+  const buildDate = Number.isNaN(Date.parse(__APP_BUILD_TIME__))
+    ? null
+    : new Date(__APP_BUILD_TIME__);
+  const buildLabel = buildDate ? buildDate.toLocaleString() : __APP_BUILD_TIME__;
 
   const handleCreateInvite = async () => {
     setIsCreating(true);
@@ -85,7 +85,7 @@ export default function ProfilePage() {
       {/* Invite Code Section */}
       <div className="bg-slate-800/50 rounded-2xl p-6 mb-6">
         <h3 className="text-sm font-medium text-slate-300 mb-3">Invite Friends</h3>
-        
+
         {inviteCode ? (
           <div className="space-y-3">
             <div className="bg-slate-900 rounded-lg p-3 font-mono text-sm text-primary-400 break-all">
@@ -107,9 +107,7 @@ export default function ProfilePage() {
             {isCreating ? 'Creating...' : 'Generate Invite Code'}
           </button>
         )}
-        <p className="text-xs text-slate-500 mt-3">
-          Share this code with friends to let them join
-        </p>
+        <p className="text-xs text-slate-500 mt-3">Share this code with friends to let them join</p>
       </div>
 
       {/* Logout */}
@@ -122,15 +120,12 @@ export default function ProfilePage() {
       >
         <p className="text-xs font-medium text-slate-300">Build</p>
         <p className="text-xs text-slate-400 mt-1 font-mono">
-          v{__APP_VERSION__}{__APP_GIT_SHA__ ? ` (${__APP_GIT_SHA__})` : ''}
+          v{__APP_VERSION__}
+          {__APP_GIT_SHA__ ? ` (${__APP_GIT_SHA__})` : ''}
         </p>
-        <p className="text-[11px] text-slate-500 mt-1">
-          {buildLabel}
-        </p>
+        <p className="text-[11px] text-slate-500 mt-1">{buildLabel}</p>
         {isForcingUpgrade && (
-          <p className="text-[11px] text-primary-400 mt-2">
-            Checking for update...
-          </p>
+          <p className="text-[11px] text-primary-400 mt-2">Checking for update...</p>
         )}
       </button>
 

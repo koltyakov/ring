@@ -1,4 +1,4 @@
-.PHONY: all build frontend backend run clean dev dev-backend dev-frontend setup check test lint typecheck create-invite bootstrap db-reset help
+.PHONY: all build frontend backend run clean dev dev-backend dev-frontend setup check test lint typecheck format format-check create-invite bootstrap db-reset help
 
 # Default target
 all: build
@@ -11,7 +11,7 @@ setup:
 	cd backend && go mod download && go mod verify
 
 # Run all required quality checks
-check: lint typecheck test
+check: format-check lint typecheck test
 
 test:
 	cd backend && go test -race -shuffle=on ./...
@@ -22,6 +22,12 @@ lint:
 
 typecheck:
 	cd frontend && npm run typecheck
+
+format:
+	cd frontend && npm run format
+
+format-check:
+	cd frontend && npm run format:check
 
 # Build frontend
 frontend:
@@ -82,6 +88,8 @@ help:
 	@echo "  test         - Run backend tests with the race detector"
 	@echo "  lint         - Run frontend lint and Go vet"
 	@echo "  typecheck    - Type-check the frontend"
+	@echo "  format       - Format frontend files with Oxfmt"
+	@echo "  format-check - Verify frontend formatting"
 	@echo "  frontend     - Build frontend only"
 	@echo "  backend      - Build backend only"
 	@echo "  dev          - Start development servers (frontend + backend)"

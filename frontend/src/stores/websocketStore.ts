@@ -3,30 +3,30 @@ import { useMessagesStore } from './messagesStore';
 import { useUsersStore } from './usersStore';
 
 interface IncomingCall {
-  from: number
-  data: unknown
-  callId: string | null
+  from: number;
+  data: unknown;
+  callId: string | null;
 }
 
 interface WebSocketState {
-  socket: WebSocket | null
-  isConnected: boolean
-  incomingCall: IncomingCall | null
-  connect: () => void
-  disconnect: () => void
-  sendTyping: (to: number, typing: boolean) => void
-  sendCallOffer: (to: number, data: unknown) => void
-  sendCallAnswer: (to: number, data: unknown) => void
-  sendIceCandidate: (to: number, candidate: unknown) => void
-  endCall: (to: number) => void
-  clearIncomingCall: () => void
+  socket: WebSocket | null;
+  isConnected: boolean;
+  incomingCall: IncomingCall | null;
+  connect: () => void;
+  disconnect: () => void;
+  sendTyping: (to: number, typing: boolean) => void;
+  sendCallOffer: (to: number, data: unknown) => void;
+  sendCallAnswer: (to: number, data: unknown) => void;
+  sendIceCandidate: (to: number, candidate: unknown) => void;
+  endCall: (to: number) => void;
+  clearIncomingCall: () => void;
 }
 
 interface DecodedSignal {
-  callId: string | null
-  description?: RTCSessionDescriptionInit
-  candidate?: RTCIceCandidateInit
-  raw: unknown
+  callId: string | null;
+  description?: RTCSessionDescriptionInit;
+  candidate?: RTCIceCandidateInit;
+  raw: unknown;
 }
 
 // Module-level tracking to prevent reconnect loops and stale socket interference
@@ -56,7 +56,8 @@ function buildWebSocketUrl(token: string): string {
 
   if (envWsBase) {
     const url = new URL(envWsBase);
-    url.protocol = url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
+    url.protocol =
+      url.protocol === 'https:' ? 'wss:' : url.protocol === 'http:' ? 'ws:' : url.protocol;
     url.pathname = wsPathFromBasePath(url.pathname);
     url.search = '';
     url.hash = '';
@@ -147,10 +148,10 @@ function parseSignalPayload(data: unknown): DecodedSignal {
 
   const callId = typeof decoded.callId === 'string' ? decoded.callId : null;
   const description = isObject(decoded.description)
-    ? decoded.description as unknown as RTCSessionDescriptionInit
+    ? (decoded.description as unknown as RTCSessionDescriptionInit)
     : undefined;
   const candidate = isObject(decoded.candidate)
-    ? decoded.candidate as unknown as RTCIceCandidateInit
+    ? (decoded.candidate as unknown as RTCIceCandidateInit)
     : undefined;
 
   if (description || candidate) {
@@ -166,7 +167,11 @@ function parseSignalPayload(data: unknown): DecodedSignal {
     };
   }
 
-  if (typeof decoded.candidate === 'string' || typeof decoded.sdpMid === 'string' || typeof decoded.sdpMLineIndex === 'number') {
+  if (
+    typeof decoded.candidate === 'string' ||
+    typeof decoded.sdpMid === 'string' ||
+    typeof decoded.sdpMLineIndex === 'number'
+  ) {
     return {
       callId,
       candidate: decoded as unknown as RTCIceCandidateInit,
@@ -194,7 +199,10 @@ function closeSocket(socket: WebSocket) {
 function scheduleReconnect(connect: () => void) {
   clearReconnectTimer();
 
-  const backoff = Math.min(BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY_MS);
+  const backoff = Math.min(
+    BASE_RECONNECT_DELAY_MS * Math.pow(2, reconnectAttempts),
+    MAX_RECONNECT_DELAY_MS,
+  );
   const jitter = Math.floor(Math.random() * 250);
   const delay = backoff + jitter;
 
@@ -209,11 +217,21 @@ function dispatchWindowEvent<T>(name: string, detail: T) {
   window.dispatchEvent(new CustomEvent<T>(name, { detail }));
 }
 
-function handleWebSocketMessage(message: { id?: number; type?: string; from?: number; to?: number; data?: unknown; content?: string; nonce?: string; timestamp?: number }) {
+function handleWebSocketMessage(message: {
+  id?: number;
+  type?: string;
+  from?: number;
+  to?: number;
+  data?: unknown;
+  content?: string;
+  nonce?: string;
+  timestamp?: number;
+}) {
   switch (message.type) {
     case 'message': {
       const currentUserId = safeParseTokenUserId();
-      const timestampMs = typeof message.timestamp === 'number' ? message.timestamp * 1000 : Date.now();
+      const timestampMs =
+        typeof message.timestamp === 'number' ? message.timestamp * 1000 : Date.now();
 
       const msg = {
         id: typeof message.id === 'number' ? message.id : Date.now(),
@@ -241,7 +259,8 @@ function handleWebSocketMessage(message: { id?: number; type?: string; from?: nu
     case 'presence': {
       const presenceData = decodeMessageData(message.data);
       if (!isObject(presenceData)) return;
-      if (typeof presenceData.user_id !== 'number' || typeof presenceData.online !== 'boolean') return;
+      if (typeof presenceData.user_id !== 'number' || typeof presenceData.online !== 'boolean')
+        return;
       useUsersStore.getState().updateUserStatus(presenceData.user_id, presenceData.online);
       break;
     }
@@ -251,14 +270,19 @@ function handleWebSocketMessage(message: { id?: number; type?: string; from?: nu
       const from = message.from ?? 0;
       const offerData = signal.description ?? signal.raw;
 
-      useWebSocketStore.setState({ incomingCall: { from, data: offerData, callId: signal.callId } });
+      useWebSocketStore.setState({
+        incomingCall: { from, data: offerData, callId: signal.callId },
+      });
 
       try {
-        sessionStorage.setItem('ring.incomingOffer', JSON.stringify({
-          from,
-          data: offerData,
-          callId: signal.callId,
-        }));
+        sessionStorage.setItem(
+          'ring.incomingOffer',
+          JSON.stringify({
+            from,
+            data: offerData,
+            callId: signal.callId,
+          }),
+        );
       } catch {
         // Ignore storage failures.
       }
@@ -318,12 +342,12 @@ function handleWebSocketMessage(message: { id?: number; type?: string; from?: nu
     case 'read_receipt':
       {
         const receipt = decodeMessageData(message.data);
-        const fromId = isObject(receipt) && typeof receipt.from_id === 'number'
-          ? receipt.from_id
-          : undefined;
-        const throughId = isObject(receipt) && typeof receipt.through_id === 'number'
-          ? receipt.through_id
-          : undefined;
+        const fromId =
+          isObject(receipt) && typeof receipt.from_id === 'number' ? receipt.from_id : undefined;
+        const throughId =
+          isObject(receipt) && typeof receipt.through_id === 'number'
+            ? receipt.through_id
+            : undefined;
         useMessagesStore.getState().markSentMessagesAsRead(message.from ?? 0, fromId, throughId);
       }
       break;
@@ -347,7 +371,11 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
     clearReconnectTimer();
 
     // If we already have an active or connecting socket, avoid duplicate connects.
-    if (currentSocket && (currentSocket.readyState === WebSocket.OPEN || currentSocket.readyState === WebSocket.CONNECTING)) {
+    if (
+      currentSocket &&
+      (currentSocket.readyState === WebSocket.OPEN ||
+        currentSocket.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -372,7 +400,11 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
     socket.onclose = (event) => {
       if (currentSocket !== socket) return;
 
-      console.warn('[WS] Closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
+      console.warn('[WS] Closed', {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
       currentSocket = null;
       set({ isConnected: false, socket: null });
 
@@ -390,14 +422,14 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
     socket.onmessage = (event) => {
       try {
         const message = JSON.parse(event.data) as {
-          id?: number
-          type?: string
-          from?: number
-          to?: number
-          data?: unknown
-          content?: string
-          nonce?: string
-          timestamp?: number
+          id?: number;
+          type?: string;
+          from?: number;
+          to?: number;
+          data?: unknown;
+          content?: string;
+          nonce?: string;
+          timestamp?: number;
         };
         handleWebSocketMessage(message);
       } catch {
@@ -424,50 +456,60 @@ export const useWebSocketStore = create<WebSocketState>((set, get) => ({
     const { socket, isConnected } = get();
     if (!socket || !isConnected || socket.readyState !== WebSocket.OPEN) return;
 
-    socket.send(JSON.stringify({
-      type: 'typing',
-      payload: { to, typing },
-    }));
+    socket.send(
+      JSON.stringify({
+        type: 'typing',
+        payload: { to, typing },
+      }),
+    );
   },
 
   sendCallOffer: (to: number, data: unknown) => {
     const { socket, isConnected } = get();
     if (!socket || !isConnected || socket.readyState !== WebSocket.OPEN) return;
 
-    socket.send(JSON.stringify({
-      type: 'call_offer',
-      payload: { to, data },
-    }));
+    socket.send(
+      JSON.stringify({
+        type: 'call_offer',
+        payload: { to, data },
+      }),
+    );
   },
 
   sendCallAnswer: (to: number, data: unknown) => {
     const { socket, isConnected } = get();
     if (!socket || !isConnected || socket.readyState !== WebSocket.OPEN) return;
 
-    socket.send(JSON.stringify({
-      type: 'call_answer',
-      payload: { to, data },
-    }));
+    socket.send(
+      JSON.stringify({
+        type: 'call_answer',
+        payload: { to, data },
+      }),
+    );
   },
 
   sendIceCandidate: (to: number, candidate: unknown) => {
     const { socket, isConnected } = get();
     if (!socket || !isConnected || socket.readyState !== WebSocket.OPEN) return;
 
-    socket.send(JSON.stringify({
-      type: 'call_ice',
-      payload: { to, data: candidate },
-    }));
+    socket.send(
+      JSON.stringify({
+        type: 'call_ice',
+        payload: { to, data: candidate },
+      }),
+    );
   },
 
   endCall: (to: number) => {
     const { socket, isConnected } = get();
     if (!socket || !isConnected || socket.readyState !== WebSocket.OPEN) return;
 
-    socket.send(JSON.stringify({
-      type: 'call_end',
-      payload: { to },
-    }));
+    socket.send(
+      JSON.stringify({
+        type: 'call_end',
+        payload: { to },
+      }),
+    );
   },
 
   clearIncomingCall: () => {

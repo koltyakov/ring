@@ -1,19 +1,22 @@
 const API_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
     super(message);
   }
 }
 
 async function fetchWithAuth(path: string, options: RequestInit = {}, skipAuthRedirect = false) {
   const token = localStorage.getItem('token');
-  
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
-      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...(token && { Authorization: `Bearer ${token}` }),
       ...options.headers,
     },
   });
@@ -45,28 +48,28 @@ async function fetchWithAuth(path: string, options: RequestInit = {}, skipAuthRe
 }
 
 export interface User {
-  id: number
-  username: string
-  public_key: string
-  created_at: string
-  last_seen: string
-  online: boolean
+  id: number;
+  username: string;
+  public_key: string;
+  created_at: string;
+  last_seen: string;
+  online: boolean;
 }
 
 export interface Message {
-  id: number
-  sender_id: number
-  receiver_id: number
-  type: 'text' | 'file' | 'call'
-  content: string  // base64 encoded encrypted content
-  nonce: string    // base64 encoded nonce
-  timestamp: string
-  read: boolean
+  id: number;
+  sender_id: number;
+  receiver_id: number;
+  type: 'text' | 'file' | 'call';
+  content: string; // base64 encoded encrypted content
+  nonce: string; // base64 encoded nonce
+  timestamp: string;
+  read: boolean;
 }
 
 export interface MessagePage {
-  messages: Message[]
-  next_cursor: number | null
+  messages: Message[];
+  next_cursor: number | null;
 }
 
 export const api = {
@@ -78,10 +81,14 @@ export const api = {
     }),
 
   login: (username: string, password: string) =>
-    fetchWithAuth('/api/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password }),
-    }, true), // skip auth redirect on 401
+    fetchWithAuth(
+      '/api/login',
+      {
+        method: 'POST',
+        body: JSON.stringify({ username, password }),
+      },
+      true,
+    ), // skip auth redirect on 401
 
   validateInvite: (code: string) =>
     fetchWithAuth('/api/invite/validate', {
@@ -90,11 +97,9 @@ export const api = {
     }),
 
   // Users
-  getUsers: (): Promise<User[]> =>
-    fetchWithAuth('/api/users'),
+  getUsers: (): Promise<User[]> => fetchWithAuth('/api/users'),
 
-  getMe: (): Promise<User> =>
-    fetchWithAuth('/api/users/me'),
+  getMe: (): Promise<User> => fetchWithAuth('/api/users/me'),
 
   updatePublicKey: (publicKey: string) =>
     fetchWithAuth('/api/users/update-key', {

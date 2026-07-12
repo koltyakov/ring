@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src --deny-warnings",
-    "lint:fix": "oxlint src --fix"
+    "lint:fix": "oxlint src --fix",
+    "format": "cd .. && frontend/node_modules/.bin/oxfmt frontend .vscode README.md",
+    "format:check": "cd .. && frontend/node_modules/.bin/oxfmt --check frontend .vscode README.md"
   },
   "dependencies": {
     "clsx": "^2.1.1",
@@ -27,6 +29,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "autoprefixer": "^10.5.2",
+    "oxfmt": "^0.58.0",
     "oxlint": "^1.73.0",
     "postcss": "^8.5.17",
     "tailwindcss": "^4.3.2",

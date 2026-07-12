@@ -4,18 +4,18 @@ import { useMessagesStore } from '../stores/messagesStore';
 import { useUsersStore } from '../stores/usersStore';
 
 interface MessageListProps {
-  userId: number
+  userId: number;
 }
 
 export default function MessageList({ userId }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const messages = useMessagesStore(state => state.getMessagesForUser(userId));
-  const isLoading = useMessagesStore(state => state.isUserLoading(userId));
-  const fetchMessages = useMessagesStore(state => state.fetchMessages);
-  const loadOlderMessages = useMessagesStore(state => state.loadOlderMessages);
-  const hasMore = useMessagesStore(state => state.hasMoreByUser.get(userId) ?? true);
-  const typing = useMessagesStore(state => state.typingUsers.get(userId));
-  const user = useUsersStore(state => state.getUserById(userId));
+  const messages = useMessagesStore((state) => state.getMessagesForUser(userId));
+  const isLoading = useMessagesStore((state) => state.isUserLoading(userId));
+  const fetchMessages = useMessagesStore((state) => state.fetchMessages);
+  const loadOlderMessages = useMessagesStore((state) => state.loadOlderMessages);
+  const hasMore = useMessagesStore((state) => state.hasMoreByUser.get(userId) ?? true);
+  const typing = useMessagesStore((state) => state.typingUsers.get(userId));
+  const user = useUsersStore((state) => state.getUserById(userId));
 
   useEffect(() => {
     if (!user?.public_key) return;
@@ -53,7 +53,7 @@ export default function MessageList({ userId }: MessageListProps) {
 
   // Group messages by date
   const groupedMessages: { date: string; items: typeof visibleMessages }[] = [];
-  visibleMessages.forEach(msg => {
+  visibleMessages.forEach((msg) => {
     const date = format(new Date(msg.timestamp), 'MMMM d, yyyy');
     const lastGroup = groupedMessages[groupedMessages.length - 1];
     if (lastGroup && lastGroup.date === date) {
@@ -81,7 +81,12 @@ export default function MessageList({ userId }: MessageListProps) {
         <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center">
           <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.5}
+                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+              />
             </svg>
           </div>
           <p className="font-medium">Start a secure conversation</p>
@@ -95,47 +100,44 @@ export default function MessageList({ userId }: MessageListProps) {
                 {group.date}
               </span>
             </div>
-            
+
             {group.items.map((msg, index) => {
               const isSent = msg.sender_id === currentUserId;
-              const displayContent = msg.decryptedContent ?? (isSent ? '[Sent from another session]' : '[Decrypting...]');
-              const showTime = index === group.items.length - 1 || 
-                new Date(group.items[index + 1].timestamp).getTime() - new Date(msg.timestamp).getTime() > 60000;
+              const displayContent =
+                msg.decryptedContent ??
+                (isSent ? '[Sent from another session]' : '[Decrypting...]');
+              const showTime =
+                index === group.items.length - 1 ||
+                new Date(group.items[index + 1].timestamp).getTime() -
+                  new Date(msg.timestamp).getTime() >
+                  60000;
 
               return (
-                <div
-                  key={msg.id}
-                  className={`flex ${isSent ? 'justify-end' : 'justify-start'}`}
-                >
+                <div key={msg.id} className={`flex ${isSent ? 'justify-end' : 'justify-start'}`}>
                   <div className="max-w-[75%]">
                     <div className={isSent ? 'message-sent' : 'message-received'}>
-                      <span style={{ whiteSpace: 'pre-wrap' }}>
-                        {displayContent}
-                      </span>
+                      <span style={{ whiteSpace: 'pre-wrap' }}>{displayContent}</span>
                     </div>
                     {showTime && (
-                      <p className={`text-[10px] text-slate-500 mt-1 flex items-center gap-1 ${isSent ? 'justify-end' : 'justify-start'}`}>
+                      <p
+                        className={`text-[10px] text-slate-500 mt-1 flex items-center gap-1 ${isSent ? 'justify-end' : 'justify-start'}`}
+                      >
                         {isSent && (
                           <span className="inline-flex relative text-slate-500">
-                            <svg 
-                              width="13" 
-                              height="8" 
-                              viewBox="0 0 16 9" 
-                              fill="none"
-                            >
-                              <path 
-                                d="M0.5 4.5L3.5 7.5L8.5 0.5" 
-                                stroke="currentColor" 
-                                strokeWidth="1.2" 
-                                strokeLinecap="round" 
+                            <svg width="13" height="8" viewBox="0 0 16 9" fill="none">
+                              <path
+                                d="M0.5 4.5L3.5 7.5L8.5 0.5"
+                                stroke="currentColor"
+                                strokeWidth="1.2"
+                                strokeLinecap="round"
                                 strokeLinejoin="round"
                               />
                               {msg.read && (
-                                <path 
-                                  d="M4.5 4.5L7.5 7.5L12.5 0.5" 
-                                  stroke="currentColor" 
-                                  strokeWidth="1.2" 
-                                  strokeLinecap="round" 
+                                <path
+                                  d="M4.5 4.5L7.5 7.5L12.5 0.5"
+                                  stroke="currentColor"
+                                  strokeWidth="1.2"
+                                  strokeLinecap="round"
                                   strokeLinejoin="round"
                                 />
                               )}
@@ -157,9 +159,18 @@ export default function MessageList({ userId }: MessageListProps) {
         <div className="flex justify-start">
           <div className="message-received py-3">
             <div className="flex gap-1">
-              <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              <span
+                className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                style={{ animationDelay: '0ms' }}
+              />
+              <span
+                className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                style={{ animationDelay: '150ms' }}
+              />
+              <span
+                className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+                style={{ animationDelay: '300ms' }}
+              />
             </div>
           </div>
         </div>

@@ -15,18 +15,18 @@ function resetSessionState() {
 }
 
 interface AuthState {
-  token: string | null
-  user: User | null
-  isAuthenticated: boolean
-  isLoading: boolean
-  hasCheckedAuth: boolean
-  error: string | null
-  register: (username: string, password: string, inviteCode: string) => Promise<void>
-  login: (username: string, password: string) => Promise<void>
-  logout: () => void
-  checkAuth: () => void
-  clearError: () => void
-  createInvite: () => Promise<string>
+  token: string | null;
+  user: User | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  hasCheckedAuth: boolean;
+  error: string | null;
+  register: (username: string, password: string, inviteCode: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => void;
+  checkAuth: () => void;
+  clearError: () => void;
+  createInvite: () => Promise<string>;
 }
 
 export const useAuthStore = create<AuthState>((set) => ({
@@ -43,13 +43,13 @@ export const useAuthStore = create<AuthState>((set) => ({
       // Generate keys (or use existing)
       await getOrCreateKeys(); // This stores keys in localStorage
       const publicKeyBase64 = getPublicKeyBase64();
-      
+
       if (!publicKeyBase64) {
         throw new Error('Failed to generate encryption keys');
       }
 
       const response = await api.register(username, password, inviteCode, publicKeyBase64);
-      
+
       localStorage.setItem('token', response.token);
       set({
         token: response.token,
@@ -74,16 +74,16 @@ export const useAuthStore = create<AuthState>((set) => ({
       console.log('[Auth] Ensuring encryption keys exist before login...');
       await getOrCreateKeys();
       const publicKeyBase64 = getPublicKeyBase64();
-      
+
       if (!publicKeyBase64) {
         throw new Error('Failed to get encryption keys');
       }
-      
+
       console.log('[Auth] Keys ready, logging in...');
       const response = await api.login(username, password);
-      
+
       localStorage.setItem('token', response.token);
-      
+
       // Immediately sync the public key after login
       console.log('[Auth] Login successful, syncing public key...');
       try {
@@ -93,7 +93,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         console.error('[Auth] Failed to sync public key on login:', error);
         // Continue anyway - checkAuth will try again
       }
-      
+
       set({
         token: response.token,
         user: { ...response.user, public_key: publicKeyBase64 },
@@ -132,11 +132,11 @@ export const useAuthStore = create<AuthState>((set) => ({
 
     try {
       const user = await api.getMe();
-      
+
       // Check if local public key matches server
       await getOrCreateKeys(); // Ensure keys exist
       const localPublicKey = getPublicKeyBase64();
-      
+
       if (localPublicKey && localPublicKey !== user.public_key) {
         console.log('[Auth] Local public key differs from server, syncing...');
         try {
@@ -147,13 +147,19 @@ export const useAuthStore = create<AuthState>((set) => ({
           console.error('[Auth] Failed to sync public key:', error);
         }
       }
-      
+
       set({ user, isAuthenticated: true, error: null, hasCheckedAuth: true, isLoading: false });
     } catch (error) {
       // Only logout on auth failure (401), not on network errors or aborted fetches
       if (error instanceof ApiError && error.status === 401) {
         localStorage.removeItem('token');
-        set({ isAuthenticated: false, user: null, error: null, hasCheckedAuth: true, isLoading: false });
+        set({
+          isAuthenticated: false,
+          user: null,
+          error: null,
+          hasCheckedAuth: true,
+          isLoading: false,
+        });
       } else {
         // Network error / request aborted — keep token, just mark checked
         console.warn('[Auth] checkAuth failed (non-401), keeping session:', error);

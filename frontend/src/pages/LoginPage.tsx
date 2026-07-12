@@ -41,8 +41,18 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="text-center">
           <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center shadow-lg shadow-primary-500/25 mb-4">
-            <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            <svg
+              className="w-10 h-10 text-white"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+              />
             </svg>
           </div>
           <h1 className="text-2xl font-bold text-white">ChatApp</h1>
@@ -85,7 +95,9 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={mode === 'register' ? 'Create a password (8-72 chars)' : 'Enter your password'}
+              placeholder={
+                mode === 'register' ? 'Create a password (8-72 chars)' : 'Enter your password'
+              }
               className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all"
               required
               minLength={mode === 'register' ? 8 : undefined}
@@ -95,7 +107,10 @@ export default function LoginPage() {
 
           {mode === 'register' && (
             <div>
-              <label htmlFor="invite-code" className="block text-sm font-medium text-slate-300 mb-1">
+              <label
+                htmlFor="invite-code"
+                className="block text-sm font-medium text-slate-300 mb-1"
+              >
                 Invite Code <span className="text-slate-500">(optional for first user)</span>
               </label>
               <input
@@ -138,11 +153,9 @@ export default function LoginPage() {
             onClick={handleModeSwitch}
             className="text-sm text-slate-400 hover:text-white transition-colors"
           >
-            {mode === 'login' ? (
-              "Don't have an account? Sign up"
-            ) : (
-              'Already have an account? Sign in'
-            )}
+            {mode === 'login'
+              ? "Don't have an account? Sign up"
+              : 'Already have an account? Sign in'}
           </button>
         </div>
 
@@ -150,7 +163,12 @@ export default function LoginPage() {
         <div className="text-center">
           <p className="text-xs text-slate-500 flex items-center justify-center gap-1">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+              />
             </svg>
             End-to-end encrypted
           </p>

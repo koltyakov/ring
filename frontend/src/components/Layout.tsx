@@ -74,18 +74,18 @@ function playIncomingCallTone(): () => void {
 }
 
 interface LayoutProps {
-  children: React.ReactNode
+  children: React.ReactNode;
 }
 
 interface IncomingCallData {
-  from: number
-  data: unknown
-  callId?: string | null
+  from: number;
+  data: unknown;
+  callId?: string | null;
 }
 
 interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>
-  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
 function getCurrentUserId() {
@@ -104,23 +104,25 @@ function getCurrentUserId() {
 export default function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const fetchUsers = useUsersStore(state => state.fetchUsers);
-  const connect = useWebSocketStore(state => state.connect);
-  const disconnect = useWebSocketStore(state => state.disconnect);
-  const isConnected = useWebSocketStore(state => state.isConnected);
-  const incomingCall = useWebSocketStore(state => state.incomingCall);
-  const clearIncomingCall = useWebSocketStore(state => state.clearIncomingCall);
-  const wsEndCall = useWebSocketStore(state => state.endCall);
-  const activeChatUserId = useMessagesStore(state => state.activeChatUserId);
-  const notifications = useNotificationStore(state => state.notifications);
-  const dismissNotification = useNotificationStore(state => state.dismissNotification);
-  const showNotification = useNotificationStore(state => state.showNotification);
-  
+  const fetchUsers = useUsersStore((state) => state.fetchUsers);
+  const connect = useWebSocketStore((state) => state.connect);
+  const disconnect = useWebSocketStore((state) => state.disconnect);
+  const isConnected = useWebSocketStore((state) => state.isConnected);
+  const incomingCall = useWebSocketStore((state) => state.incomingCall);
+  const clearIncomingCall = useWebSocketStore((state) => state.clearIncomingCall);
+  const wsEndCall = useWebSocketStore((state) => state.endCall);
+  const activeChatUserId = useMessagesStore((state) => state.activeChatUserId);
+  const notifications = useNotificationStore((state) => state.notifications);
+  const dismissNotification = useNotificationStore((state) => state.dismissNotification);
+  const showNotification = useNotificationStore((state) => state.showNotification);
+
   const [pendingCall, setPendingCall] = useState<IncomingCallData | null>(null);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
-  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
-  const [isPwaInstalled, setIsPwaInstalled] = useState(() =>
-    window.matchMedia('(display-mode: standalone)').matches
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(
+    null,
+  );
+  const [isPwaInstalled, setIsPwaInstalled] = useState(
+    () => window.matchMedia('(display-mode: standalone)').matches,
   );
   const [isOfflineReady, setIsOfflineReady] = useState(false);
   const [isUpdateReady, setIsUpdateReady] = useState(false);
@@ -168,11 +170,11 @@ export default function Layout({ children }: LayoutProps) {
   // Periodic refetch as a fallback to keep online status in sync
   useEffect(() => {
     if (!isConnected) return;
-    
+
     const interval = setInterval(() => {
       fetchUsers();
     }, 30000);
-    
+
     return () => clearInterval(interval);
   }, [isConnected, fetchUsers]);
 
@@ -263,7 +265,7 @@ export default function Layout({ children }: LayoutProps) {
     const handleCallEnded = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       // Dismiss if the caller who is ringing us ended the call
-      setPendingCall(prev => {
+      setPendingCall((prev) => {
         if (prev && detail?.from === prev.from) {
           stopIncomingCallTone();
           clearIncomingCall();
@@ -283,7 +285,11 @@ export default function Layout({ children }: LayoutProps) {
   useEffect(() => {
     const handleIncomingCall = (e: CustomEvent) => {
       if (location.pathname.startsWith('/call/')) return;
-      const { from, data, callId } = e.detail as { from: number; data: unknown; callId?: string | null };
+      const { from, data, callId } = e.detail as {
+        from: number;
+        data: unknown;
+        callId?: string | null;
+      };
       setPendingCall({ from, data, callId });
     };
 
@@ -298,18 +304,18 @@ export default function Layout({ children }: LayoutProps) {
     const handleNewMessage = (e: CustomEvent) => {
       const message = e.detail;
       const currentUserId = getCurrentUserId();
-      
+
       // Only show notification for incoming messages (not sent by us)
       if (message.sender_id === currentUserId) return;
-      
+
       // Don't show notification if we're in the chat with this user
       if (activeChatUserId === message.sender_id) return;
-      
+
       // Create a unique key for this message to prevent duplicates
       const messageKey = `${message.sender_id}-${message.timestamp}-${message.content}`;
       if (processedMessagesRef.current.has(messageKey)) return;
       processedMessagesRef.current.add(messageKey);
-      
+
       // Clean up old processed messages (keep last 100)
       if (processedMessagesRef.current.size > 100) {
         const iterator = processedMessagesRef.current.values();
@@ -318,10 +324,10 @@ export default function Layout({ children }: LayoutProps) {
           if (value) processedMessagesRef.current.delete(value);
         }
       }
-      
+
       const sender = useUsersStore.getState().getUserById(message.sender_id);
       if (!sender) return;
-      
+
       showNotification({
         senderId: message.sender_id,
         senderName: sender.username,
@@ -406,11 +412,13 @@ export default function Layout({ children }: LayoutProps) {
           }
         }
       `}</style>
-      
+
       {children}
 
       {!isOnline && (
-        <div className={`fixed left-4 right-4 z-40 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 backdrop-blur-sm ${showInstallPrompt || isOfflineReady || isUpdateReady ? 'bottom-28' : 'bottom-4'}`}>
+        <div
+          className={`fixed left-4 right-4 z-40 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100 backdrop-blur-sm ${showInstallPrompt || isOfflineReady || isUpdateReady ? 'bottom-28' : 'bottom-4'}`}
+        >
           You are offline. Messages and calls will resume when the connection returns.
         </div>
       )}
@@ -421,7 +429,9 @@ export default function Layout({ children }: LayoutProps) {
             <div className="rounded-xl border border-slate-700 bg-slate-900/95 px-4 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-white">Install ChatApp</p>
-                <p className="text-xs text-slate-400">Open it like a native app and keep chat faster to launch.</p>
+                <p className="text-xs text-slate-400">
+                  Open it like a native app and keep chat faster to launch.
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -444,7 +454,9 @@ export default function Layout({ children }: LayoutProps) {
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-white">Offline mode ready</p>
-                <p className="text-xs text-slate-300">The app shell is cached for faster startup.</p>
+                <p className="text-xs text-slate-300">
+                  The app shell is cached for faster startup.
+                </p>
               </div>
               <button
                 onClick={() => setIsOfflineReady(false)}
@@ -459,7 +471,9 @@ export default function Layout({ children }: LayoutProps) {
             <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-3 backdrop-blur-sm flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-white">Update available</p>
-                <p className="text-xs text-slate-300">Reload to apply the latest chat and call fixes.</p>
+                <p className="text-xs text-slate-300">
+                  Reload to apply the latest chat and call fixes.
+                </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -480,7 +494,7 @@ export default function Layout({ children }: LayoutProps) {
           )}
         </div>
       )}
-      
+
       {/* Message Notifications */}
       <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none">
         {notifications.map((notification) => (
@@ -506,7 +520,7 @@ export default function Layout({ children }: LayoutProps) {
           </button>
         ))}
       </div>
-      
+
       {/* Incoming Call Modal */}
       {pendingCall && (
         <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
@@ -520,9 +534,13 @@ export default function Layout({ children }: LayoutProps) {
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-primary-500 to-purple-600 flex items-center justify-center text-white font-bold text-2xl mx-auto mb-4">
               {(caller?.username?.[0] ?? `#${pendingCall.from}`[0] ?? '?').toUpperCase()}
             </div>
-            <h2 id="incoming-call-title" className="text-xl font-bold text-white mb-2">{caller?.username ?? `User #${pendingCall.from}`}</h2>
-            <p id="incoming-call-description" className="text-slate-400 mb-6">Incoming call...</p>
-            
+            <h2 id="incoming-call-title" className="text-xl font-bold text-white mb-2">
+              {caller?.username ?? `User #${pendingCall.from}`}
+            </h2>
+            <p id="incoming-call-description" className="text-slate-400 mb-6">
+              Incoming call...
+            </p>
+
             <div className="flex items-center justify-center gap-4">
               <button
                 type="button"
@@ -531,7 +549,12 @@ export default function Layout({ children }: LayoutProps) {
                 className="w-14 h-14 rounded-full bg-red-500 text-white flex items-center justify-center"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
                 </svg>
               </button>
               <button
@@ -542,7 +565,12 @@ export default function Layout({ children }: LayoutProps) {
                 className="w-14 h-14 rounded-full bg-green-500 text-white flex items-center justify-center"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                  />
                 </svg>
               </button>
             </div>

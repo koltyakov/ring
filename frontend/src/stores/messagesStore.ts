@@ -4,34 +4,34 @@ import { encryptMessage, decryptMessage, base64ToBytes } from '../utils/crypto';
 import { useUsersStore } from './usersStore';
 
 interface DecryptedMessage extends Message {
-  decryptedContent?: string
+  decryptedContent?: string;
 }
 
 const EMPTY_MESSAGES: DecryptedMessage[] = [];
 
 interface MessagesState {
-  messages: Map<number, DecryptedMessage[]>
-  loadingUserIds: Set<number>
-  typingUsers: Map<number, boolean>
-  unreadCounts: Map<number, number>
-  hasMoreByUser: Map<number, boolean>
-  activeChatUserId: number | null
-  fetchMessages: (userId: number, beforeId?: number) => Promise<void>
-  loadOlderMessages: (userId: number) => Promise<void>
-  sendMessage: (receiverId: number, content: string) => Promise<void>
-  addMessage: (message: Message) => Promise<void>
-  setTyping: (userId: number, typing: boolean) => void
-  markIncomingMessagesAsRead: (userId: number) => void
-  markSentMessagesAsRead: (userId: number, fromId?: number, throughId?: number) => void
-  clearMessages: (userId: number) => Promise<void>
-  clearMessagesLocal: (userId: number) => void
-  getMessagesForUser: (userId: number) => DecryptedMessage[]
-  isUserLoading: (userId: number) => boolean
-  getUnreadCount: (userId: number) => number
-  getTotalUnreadCount: () => number
-  setActiveChatUserId: (userId: number | null) => void
-  incrementUnreadCount: (userId: number) => void
-  reset: () => void
+  messages: Map<number, DecryptedMessage[]>;
+  loadingUserIds: Set<number>;
+  typingUsers: Map<number, boolean>;
+  unreadCounts: Map<number, number>;
+  hasMoreByUser: Map<number, boolean>;
+  activeChatUserId: number | null;
+  fetchMessages: (userId: number, beforeId?: number) => Promise<void>;
+  loadOlderMessages: (userId: number) => Promise<void>;
+  sendMessage: (receiverId: number, content: string) => Promise<void>;
+  addMessage: (message: Message) => Promise<void>;
+  setTyping: (userId: number, typing: boolean) => void;
+  markIncomingMessagesAsRead: (userId: number) => void;
+  markSentMessagesAsRead: (userId: number, fromId?: number, throughId?: number) => void;
+  clearMessages: (userId: number) => Promise<void>;
+  clearMessagesLocal: (userId: number) => void;
+  getMessagesForUser: (userId: number) => DecryptedMessage[];
+  isUserLoading: (userId: number) => boolean;
+  getUnreadCount: (userId: number) => number;
+  getTotalUnreadCount: () => number;
+  setActiveChatUserId: (userId: number | null) => void;
+  incrementUnreadCount: (userId: number) => void;
+  reset: () => void;
 }
 
 const inFlightMessageFetches = new Map<string, Promise<void>>();
@@ -51,10 +51,12 @@ function getCurrentUserId() {
   }
 }
 
-function sortMessagesChronologically<T extends { id: number; timestamp: string }>(messages: T[]): T[] {
-  return [...messages].sort((a, b) => (
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || a.id - b.id
-  ));
+function sortMessagesChronologically<T extends { id: number; timestamp: string }>(
+  messages: T[],
+): T[] {
+  return [...messages].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime() || a.id - b.id,
+  );
 }
 
 function mergeMessages(existing: DecryptedMessage[], incoming: DecryptedMessage[]) {
@@ -111,19 +113,22 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
             try {
               const decryptedContent = await decryptMessage(
                 { content: msg.content, nonce: msg.nonce },
-                base64ToBytes(user.public_key)
+                base64ToBytes(user.public_key),
               );
               return { ...msg, decryptedContent };
             } catch {
               return { ...msg, decryptedContent: '[Unable to decrypt]' };
             }
-          })
+          }),
         );
 
         if (generation !== sessionGeneration) return;
         set((state) => {
           const nextMessages = new Map(state.messages);
-          nextMessages.set(userId, mergeMessages(nextMessages.get(userId) ?? [], decryptedMessages));
+          nextMessages.set(
+            userId,
+            mergeMessages(nextMessages.get(userId) ?? [], decryptedMessages),
+          );
           const nextHasMore = new Map(state.hasMoreByUser);
           nextHasMore.set(userId, page.next_cursor !== null);
           return { messages: nextMessages, hasMoreByUser: nextHasMore };
@@ -148,9 +153,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 
   loadOlderMessages: async (userId: number) => {
     const messages = get().messages.get(userId) ?? [];
-    const oldestId = messages.reduce<number | undefined>((oldest, message) => (
-      oldest === undefined || message.id < oldest ? message.id : oldest
-    ), undefined);
+    const oldestId = messages.reduce<number | undefined>(
+      (oldest, message) => (oldest === undefined || message.id < oldest ? message.id : oldest),
+      undefined,
+    );
     if (!oldestId || get().hasMoreByUser.get(userId) === false) return;
     await get().fetchMessages(userId, oldestId);
   },
@@ -162,15 +168,20 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       throw new Error('Recipient not found');
     }
 
-    console.log('[Messages] Sending message to user:', user.username, 'public_key length:', user.public_key?.length);
+    console.log(
+      '[Messages] Sending message to user:',
+      user.username,
+      'public_key length:',
+      user.public_key?.length,
+    );
 
     try {
       const encrypted = await encryptMessage(content, base64ToBytes(user.public_key));
       console.log('[Messages] Message encrypted successfully');
-      
+
       const message = await api.sendMessage(receiverId, encrypted.content, encrypted.nonce);
       console.log('[Messages] Message sent to server');
-      
+
       // Add to local state
       set((state) => {
         const nextMessages = new Map(state.messages);
@@ -179,10 +190,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
         if (alreadyExists) {
           return state;
         }
-        nextMessages.set(receiverId, sortMessagesChronologically([
-          ...userMessages,
-          { ...message, decryptedContent: content },
-        ]));
+        nextMessages.set(
+          receiverId,
+          sortMessagesChronologically([...userMessages, { ...message, decryptedContent: content }]),
+        );
         return { messages: nextMessages };
       });
     } catch (error) {
@@ -193,17 +204,26 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
 
   addMessage: async (message: Message) => {
     console.log('[Messages] Received message via WebSocket:', message);
-    
+
     // Determine the other user
     const currentUserId = getCurrentUserId();
-    const otherUserId = message.sender_id === currentUserId ? message.receiver_id : message.sender_id;
+    const otherUserId =
+      message.sender_id === currentUserId ? message.receiver_id : message.sender_id;
 
-    console.log('[Messages] Current user:', currentUserId, 'Other user:', otherUserId, 'Sender:', message.sender_id);
+    console.log(
+      '[Messages] Current user:',
+      currentUserId,
+      'Other user:',
+      otherUserId,
+      'Sender:',
+      message.sender_id,
+    );
 
     // Get the sender's public key
-    const sender = message.sender_id === currentUserId 
-      ? null 
-      : useUsersStore.getState().getUserById(message.sender_id);
+    const sender =
+      message.sender_id === currentUserId
+        ? null
+        : useUsersStore.getState().getUserById(message.sender_id);
 
     let decryptedContent: string | undefined;
     if (sender) {
@@ -211,7 +231,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       try {
         decryptedContent = await decryptMessage(
           { content: message.content, nonce: message.nonce },
-          base64ToBytes(sender.public_key)
+          base64ToBytes(sender.public_key),
         );
         console.log('[Messages] Message decrypted successfully');
       } catch (error) {
@@ -230,19 +250,24 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       if (alreadyExists) {
         return state;
       }
-      nextMessages.set(otherUserId, sortMessagesChronologically([
-        ...userMessages,
-        { ...message, decryptedContent },
-      ]));
-      
+      nextMessages.set(
+        otherUserId,
+        sortMessagesChronologically([...userMessages, { ...message, decryptedContent }]),
+      );
+
       // Increment unread count if message is from someone else and chat is not active
       const newUnreadCounts = new Map(state.unreadCounts);
       if (message.sender_id !== currentUserId && state.activeChatUserId !== otherUserId) {
         const currentCount = newUnreadCounts.get(otherUserId) || 0;
         newUnreadCounts.set(otherUserId, currentCount + 1);
       }
-      
-      console.log('[Messages] Added message to store for user:', otherUserId, 'Total messages:', userMessages.length + 1);
+
+      console.log(
+        '[Messages] Added message to store for user:',
+        otherUserId,
+        'Total messages:',
+        userMessages.length + 1,
+      );
       return { messages: nextMessages, unreadCounts: newUnreadCounts };
     });
 
@@ -265,10 +290,13 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     });
 
     if (typing) {
-      typingTimers.set(userId, setTimeout(() => {
-        typingTimers.delete(userId);
-        get().setTyping(userId, false);
-      }, 5000));
+      typingTimers.set(
+        userId,
+        setTimeout(() => {
+          typingTimers.delete(userId);
+          get().setTyping(userId, false);
+        }, 5000),
+      );
     }
   },
 
@@ -277,9 +305,9 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const newMessages = new Map(state.messages);
       const userMessages = newMessages.get(userId);
       if (userMessages) {
-        const updatedMessages = userMessages.map((msg) => (
-          msg.sender_id === userId ? { ...msg, read: true } : msg
-        ));
+        const updatedMessages = userMessages.map((msg) =>
+          msg.sender_id === userId ? { ...msg, read: true } : msg,
+        );
         newMessages.set(userId, updatedMessages);
       }
       // Clear unread count for this user
@@ -296,11 +324,14 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       const userMessages = newMessages.get(userId);
       if (!userMessages) return state;
 
-      const updatedMessages = userMessages.map((msg) => (
-        msg.sender_id === currentUserId && msg.receiver_id === userId && msg.id >= fromId && msg.id <= throughId
+      const updatedMessages = userMessages.map((msg) =>
+        msg.sender_id === currentUserId &&
+        msg.receiver_id === userId &&
+        msg.id >= fromId &&
+        msg.id <= throughId
           ? { ...msg, read: true }
-          : msg
-      ));
+          : msg,
+      );
       newMessages.set(userId, updatedMessages);
       return { messages: newMessages };
     });
