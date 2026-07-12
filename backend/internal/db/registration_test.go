@@ -27,10 +27,10 @@ func TestRegisterUserRequiresAndConsumesInvite(t *testing.T) {
 	ctx := context.Background()
 	publicKey := make([]byte, 32)
 
-	if _, err := RegisterUser(ctx, "first", "hash", publicKey, ""); err != nil {
+	if _, err := RegisterUser(ctx, "first", "hash", publicKey, "", true); err != nil {
 		t.Fatalf("register first user: %v", err)
 	}
-	if _, err := RegisterUser(ctx, "second", "hash", publicKey, ""); !errors.Is(err, ErrInviteRequired) {
+	if _, err := RegisterUser(ctx, "second", "hash", publicKey, "", true); !errors.Is(err, ErrInviteRequired) {
 		t.Fatalf("expected ErrInviteRequired, got %v", err)
 	}
 
@@ -38,11 +38,26 @@ func TestRegisterUserRequiresAndConsumesInvite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RegisterUser(ctx, "second", "hash", publicKey, code); err != nil {
+	if _, err := RegisterUser(ctx, "second", "hash", publicKey, code, false); err != nil {
 		t.Fatalf("register invited user: %v", err)
 	}
 	if err := ValidateInvite(code); err == nil {
 		t.Fatal("consumed invite still validates")
+	}
+}
+
+func TestRegisterUserRequiresBootstrapAuthorizationForFirstUser(t *testing.T) {
+	initTestDB(t)
+	_, err := RegisterUser(context.Background(), "first", "hash", make([]byte, 32), "", false)
+	if !errors.Is(err, ErrBootstrapAuth) {
+		t.Fatalf("expected ErrBootstrapAuth, got %v", err)
+	}
+	var count int
+	if err := DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unauthorized bootstrap created %d users", count)
 	}
 }
 
@@ -58,7 +73,7 @@ func TestRegisterUserAllowsOnlyOneConcurrentFirstUser(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, err := RegisterUser(ctx, fmt.Sprintf("first-%d", i), "hash", publicKey, "")
+			_, err := RegisterUser(ctx, fmt.Sprintf("first-%d", i), "hash", publicKey, "", true)
 			results <- err
 		}(i)
 	}
@@ -84,7 +99,7 @@ func TestRegisterUserAllowsOnlyOneConcurrentInviteClaim(t *testing.T) {
 	initTestDB(t)
 	ctx := context.Background()
 	publicKey := make([]byte, 32)
-	if _, err := RegisterUser(ctx, "first", "hash", publicKey, ""); err != nil {
+	if _, err := RegisterUser(ctx, "first", "hash", publicKey, "", true); err != nil {
 		t.Fatal(err)
 	}
 	code, err := GenerateInviteCode()
@@ -99,7 +114,7 @@ func TestRegisterUserAllowsOnlyOneConcurrentInviteClaim(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, err := RegisterUser(ctx, fmt.Sprintf("user-%d", i), "hash", publicKey, code)
+			_, err := RegisterUser(ctx, fmt.Sprintf("user-%d", i), "hash", publicKey, code, false)
 			results <- err
 		}(i)
 	}
@@ -130,7 +145,7 @@ func TestForeignKeysAreEnforced(t *testing.T) {
 
 func TestUpdatePasswordHashRequiresExistingUser(t *testing.T) {
 	initTestDB(t)
-	user, err := RegisterUser(context.Background(), "alice", "old-hash", make([]byte, 32), "")
+	user, err := RegisterUser(context.Background(), "alice", "old-hash", make([]byte, 32), "", true)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,6 +15,7 @@ var (
 	ErrInviteRequired = errors.New("invite code required")
 	ErrInvalidInvite  = errors.New("invalid or used invite code")
 	ErrUsernameExists = errors.New("username already exists")
+	ErrBootstrapAuth  = errors.New("bootstrap authorization required")
 )
 
 var dummyPasswordHash = func() string {
@@ -58,7 +59,7 @@ func CreateUser(username string, passwordHash string, publicKey []byte) (*User, 
 }
 
 // RegisterUser atomically creates a user and consumes the required invite.
-func RegisterUser(ctx context.Context, username, passwordHash string, publicKey []byte, inviteCode string) (*User, error) {
+func RegisterUser(ctx context.Context, username, passwordHash string, publicKey []byte, inviteCode string, bootstrapAuthorized bool) (*User, error) {
 	tx, err := DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -71,6 +72,9 @@ func RegisterUser(ctx context.Context, username, passwordHash string, publicKey 
 	}
 
 	requiresInvite := userCount > 0
+	if !requiresInvite && !bootstrapAuthorized {
+		return nil, ErrBootstrapAuth
+	}
 	if requiresInvite && inviteCode == "" {
 		return nil, ErrInviteRequired
 	}

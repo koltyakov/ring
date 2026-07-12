@@ -10,7 +10,7 @@ func TestMessageCursorPaginationAndReadRange(t *testing.T) {
 	initTestDB(t)
 	ctx := context.Background()
 	publicKey := make([]byte, 32)
-	alice, err := RegisterUser(ctx, "alice", "hash", publicKey, "")
+	alice, err := RegisterUser(ctx, "alice", "hash", publicKey, "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -18,7 +18,7 @@ func TestMessageCursorPaginationAndReadRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bob, err := RegisterUser(ctx, "bob", "hash", publicKey, code)
+	bob, err := RegisterUser(ctx, "bob", "hash", publicKey, code, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -53,6 +53,7 @@ make setup
 
 ```bash
 export JWT_SECRET="$(openssl rand -hex 32)"
+export BOOTSTRAP_SECRET="$(openssl rand -hex 24)"
 ```
 
 4. Start development servers:
@@ -78,7 +79,7 @@ The frontend will be built into `backend/static/` and served by the Go server on
 ## First Time Setup
 
 1. Access the app at `http://localhost:5173` during development or `http://localhost:8080` after a production build.
-2. Create the first user. An invite is not required while the database has no users:
+2. Create the first user with the configured `BOOTSTRAP_SECRET`. Later users require invites:
 
 ```bash
 # Start fresh if necessary, then register through the application
@@ -165,6 +166,7 @@ The current key directory is trusted: the server stores mutable public keys and 
 
 - `PORT` - Server port (default: 8080)
 - `JWT_SECRET` - Required JWT signing secret (at least 32 characters)
+- `BOOTSTRAP_SECRET` - Required only to authorize the first account in an empty database (at least 16 characters)
 - `DB_PATH` - SQLite path (default: `chatapp.db` relative to the backend process)
 - `ALLOWED_ORIGINS` - Comma-separated additional HTTP origins; same-origin requests are always allowed
 - `TRUST_PROXY_HEADERS` - Set to `true` only behind a trusted proxy that replaces forwarding headers

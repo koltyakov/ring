@@ -166,6 +166,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		Username   string `json:"username"`
 		Password   string `json:"password"`
 		InviteCode string `json:"invite_code"`
+		Bootstrap  string `json:"bootstrap_secret"`
 		PublicKey  string `json:"public_key"`
 	}
 
@@ -204,9 +205,13 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// User creation and invite consumption must commit together.
-	user, err := db.RegisterUser(r.Context(), req.Username, passwordHash, pubKey, req.InviteCode)
+	user, err := db.RegisterUser(
+		r.Context(), req.Username, passwordHash, pubKey, req.InviteCode, validBootstrapSecret(req.Bootstrap),
+	)
 	if err != nil {
 		switch {
+		case errors.Is(err, db.ErrBootstrapAuth):
+			errorResponse(w, http.StatusForbidden, err.Error())
 		case errors.Is(err, db.ErrInviteRequired), errors.Is(err, db.ErrInvalidInvite), errors.Is(err, db.ErrUsernameExists):
 			errorResponse(w, http.StatusBadRequest, err.Error())
 		default:

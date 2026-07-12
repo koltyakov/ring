@@ -74,10 +74,22 @@ export interface MessagePage {
 
 export const api = {
   // Auth
-  register: (username: string, password: string, inviteCode: string, publicKey: string) =>
+  register: (
+    username: string,
+    password: string,
+    inviteCode: string,
+    bootstrapSecret: string,
+    publicKey: string,
+  ) =>
     fetchWithAuth('/api/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, invite_code: inviteCode, public_key: publicKey }),
+      body: JSON.stringify({
+        username,
+        password,
+        invite_code: inviteCode,
+        bootstrap_secret: bootstrapSecret,
+        public_key: publicKey,
+      }),
     }),
 
   login: (username: string, password: string) =>

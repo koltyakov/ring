@@ -6,12 +6,14 @@ export default function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [inviteCode, setInviteCode] = useState('');
+  const [bootstrapSecret, setBootstrapSecret] = useState('');
   const [isValidating, setIsValidating] = useState(false);
   const { login, register, isLoading, error, clearError } = useAuthStore();
 
   const handleModeSwitch = () => {
     setMode(mode === 'login' ? 'register' : 'login');
     setInviteCode('');
+    setBootstrapSecret('');
     setPassword('');
     clearError();
   };
@@ -22,7 +24,7 @@ export default function LoginPage() {
     if (mode === 'register') {
       setIsValidating(true);
       try {
-        await register(username, password, inviteCode);
+        await register(username, password, inviteCode, bootstrapSecret);
       } catch {
         setIsValidating(false);
       }
@@ -106,26 +108,42 @@ export default function LoginPage() {
           </div>
 
           {mode === 'register' && (
-            <div>
-              <label
-                htmlFor="invite-code"
-                className="block text-sm font-medium text-slate-300 mb-1"
-              >
-                Invite Code <span className="text-slate-500">(optional for first user)</span>
-              </label>
-              <input
-                id="invite-code"
-                autoComplete="off"
-                type="text"
-                value={inviteCode}
-                onChange={(e) => setInviteCode(e.target.value)}
-                placeholder="Leave empty if first user"
-                className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all font-mono"
-              />
-              <p className="text-xs text-slate-500 mt-1">
-                First user can register without invite code
-              </p>
-            </div>
+            <>
+              <div>
+                <label
+                  htmlFor="invite-code"
+                  className="block text-sm font-medium text-slate-300 mb-1"
+                >
+                  Invite Code <span className="text-slate-500">(existing installations)</span>
+                </label>
+                <input
+                  id="invite-code"
+                  autoComplete="off"
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value)}
+                  placeholder="Invite code"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all font-mono"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="bootstrap-secret"
+                  className="block text-sm font-medium text-slate-300 mb-1"
+                >
+                  Setup Secret <span className="text-slate-500">(first account only)</span>
+                </label>
+                <input
+                  id="bootstrap-secret"
+                  autoComplete="off"
+                  type="password"
+                  value={bootstrapSecret}
+                  onChange={(e) => setBootstrapSecret(e.target.value)}
+                  placeholder="Server bootstrap secret"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all font-mono"
+                />
+              </div>
+            </>
           )}
 
           <button

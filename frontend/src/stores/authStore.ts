@@ -21,7 +21,12 @@ interface AuthState {
   isLoading: boolean;
   hasCheckedAuth: boolean;
   error: string | null;
-  register: (username: string, password: string, inviteCode: string) => Promise<void>;
+  register: (
+    username: string,
+    password: string,
+    inviteCode: string,
+    bootstrapSecret: string,
+  ) => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   checkAuth: () => void;
@@ -37,7 +42,12 @@ export const useAuthStore = create<AuthState>((set) => ({
   hasCheckedAuth: false,
   error: null,
 
-  register: async (username: string, password: string, inviteCode: string) => {
+  register: async (
+    username: string,
+    password: string,
+    inviteCode: string,
+    bootstrapSecret: string,
+  ) => {
     set({ isLoading: true, error: null });
     try {
       // Generate keys (or use existing)
@@ -48,7 +58,13 @@ export const useAuthStore = create<AuthState>((set) => ({
         throw new Error('Failed to generate encryption keys');
       }
 
-      const response = await api.register(username, password, inviteCode, publicKeyBase64);
+      const response = await api.register(
+        username,
+        password,
+        inviteCode,
+        bootstrapSecret,
+        publicKeyBase64,
+      );
 
       localStorage.setItem('token', response.token);
       set({
