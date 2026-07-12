@@ -142,6 +142,20 @@ var migrations = []migration{
 			`CREATE UNIQUE INDEX idx_messages_sender_client_id ON messages(sender_id, client_id) WHERE client_id IS NOT NULL`,
 		},
 	},
+	{
+		version: 5,
+		statements: []string{`
+			CREATE TABLE conversation_clears (
+				user_id INTEGER NOT NULL,
+				other_user_id INTEGER NOT NULL,
+				through_id INTEGER NOT NULL,
+				cleared_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (user_id, other_user_id),
+				FOREIGN KEY (user_id) REFERENCES users(id),
+				FOREIGN KEY (other_user_id) REFERENCES users(id)
+			)
+		`},
+	},
 }
 
 func migrate(db *sql.DB) error {

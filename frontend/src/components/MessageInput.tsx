@@ -10,6 +10,7 @@ export default function MessageInput({ userId }: MessageInputProps) {
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failedAction, setFailedAction] = useState<'send' | 'clear' | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
   const pendingMessageIdRef = useRef<string | null>(null);
@@ -54,14 +55,23 @@ export default function MessageInput({ userId }: MessageInputProps) {
 
     // Check for /clear command
     if (message.trim() === '/clear') {
+      if (
+        !window.confirm(
+          'Clear this conversation from your account? The other participant will keep their history.',
+        )
+      ) {
+        return;
+      }
       setIsSending(true);
       setError(null);
       try {
         await clearMessages(userId);
         setMessage('');
+        setFailedAction(null);
       } catch (err) {
         console.error('Failed to clear messages:', err);
         setError('Failed to clear. Tap to retry.');
+        setFailedAction('clear');
       } finally {
         setIsSending(false);
       }
@@ -75,6 +85,7 @@ export default function MessageInput({ userId }: MessageInputProps) {
     try {
       await sendMessage(userId, message.trim(), clientId);
       pendingMessageIdRef.current = null;
+      setFailedAction(null);
       setMessage('');
       sendTyping(userId, false);
       typingActiveRef.current = false;
@@ -85,6 +96,7 @@ export default function MessageInput({ userId }: MessageInputProps) {
     } catch (err) {
       console.error('Failed to send message:', err);
       setError('Failed to send. Tap to retry.');
+      setFailedAction('send');
     } finally {
       setIsSending(false);
     }
@@ -94,13 +106,22 @@ export default function MessageInput({ userId }: MessageInputProps) {
     if (!message.trim() || isSending) return;
     setIsSending(true);
     try {
+      if (failedAction === 'clear') {
+        await clearMessages(userId);
+        setError(null);
+        setFailedAction(null);
+        setMessage('');
+        return;
+      }
       await sendMessage(userId, message.trim(), pendingMessageIdRef.current ?? undefined);
       pendingMessageIdRef.current = null;
       setError(null);
+      setFailedAction(null);
       setMessage('');
     } catch (err) {
       console.error('Failed to send message:', err);
       setError('Failed to send. Tap to retry.');
+      setFailedAction('send');
     } finally {
       setIsSending(false);
     }
@@ -129,6 +150,7 @@ export default function MessageInput({ userId }: MessageInputProps) {
             }
             pendingMessageIdRef.current = null;
             setError(null);
+            setFailedAction(null);
             handleTyping();
           }}
           placeholder="Message..."

@@ -157,7 +157,7 @@ The current key directory is trusted: the server stores mutable public keys and 
 | POST   | /api/users/update-key | Update public key                         |
 | GET    | /api/messages/:userID | Get a message page (`before_id`, `limit`) |
 | POST   | /api/messages         | Send message                              |
-| POST   | /api/messages/clear   | Clear messages                            |
+| POST   | /api/messages/clear   | Hide history for the requesting user      |
 | GET    | /api/ws               | WebSocket connection                      |
 | POST   | /api/ws-ticket        | Create a single-use WebSocket ticket      |
 | POST   | /api/invites          | Create invite                             |

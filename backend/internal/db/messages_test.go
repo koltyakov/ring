@@ -126,3 +126,61 @@ func TestSaveMessageIsIdempotent(t *testing.T) {
 		t.Fatalf("expected one created message, got %d", createdCount)
 	}
 }
+
+func TestClearMessagesOnlyHidesHistoryForRequester(t *testing.T) {
+	initTestDB(t)
+	ctx := context.Background()
+	publicKey := make([]byte, 32)
+	alice, err := RegisterUser(ctx, "alice", "hash", publicKey, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, err := GenerateInviteCode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := RegisterUser(ctx, "bob", "hash", publicKey, code, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, _, err := SaveMessage(alice.ID, bob.ID, fmt.Sprintf("clear-test-%d", i), "text", []byte("ciphertext"), make([]byte, 12)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	throughID, err := ClearMessagesForUser(ctx, alice.ID, bob.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if throughID == 0 {
+		t.Fatal("clear cursor was not recorded")
+	}
+
+	aliceMessages, err := GetMessagesBetween(alice.ID, bob.ID, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceMessages) != 0 {
+		t.Fatalf("alice still sees %d cleared messages", len(aliceMessages))
+	}
+	bobMessages, err := GetMessagesBetween(bob.ID, alice.ID, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bobMessages) != 3 {
+		t.Fatalf("bob lost history after alice cleared it: %d messages", len(bobMessages))
+	}
+
+	newMessage, _, err := SaveMessage(bob.ID, alice.ID, "after-clear-message", "text", []byte("new"), make([]byte, 12))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliceMessages, err = GetMessagesBetween(alice.ID, bob.ID, 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aliceMessages) != 1 || aliceMessages[0].ID != newMessage.ID {
+		t.Fatalf("new message is not visible after clear: %+v", aliceMessages)
+	}
+}

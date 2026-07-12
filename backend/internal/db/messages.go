@@ -2,6 +2,7 @@ package db
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 )
@@ -79,9 +80,12 @@ func GetMessagesBetween(userID1, userID2 int64, limit int, beforeID int64) ([]Me
 		 FROM messages 
 		 WHERE ((sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?))
 		   AND (? = 0 OR id < ?)
+		   AND id > COALESCE((
+		     SELECT through_id FROM conversation_clears WHERE user_id = ? AND other_user_id = ?
+		   ), 0)
 		 ORDER BY id DESC
 		 LIMIT ?`,
-		userID1, userID2, userID2, userID1, beforeID, beforeID, limit,
+		userID1, userID2, userID2, userID1, beforeID, beforeID, userID1, userID2, limit,
 	)
 	if err != nil {
 		return nil, err
@@ -136,10 +140,32 @@ func MarkMessagesAsReadRange(senderID, receiverID, fromID, throughID int64) (int
 	return result.RowsAffected()
 }
 
-func DeleteMessagesBetween(userID1, userID2 int64) error {
-	_, err := DB.Exec(
-		"DELETE FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)",
-		userID1, userID2, userID2, userID1,
-	)
-	return err
+func ClearMessagesForUser(ctx context.Context, userID, otherUserID int64) (int64, error) {
+	tx, err := DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	var throughID int64
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(id), 0) FROM messages
+		 WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)`,
+		userID, otherUserID, otherUserID, userID,
+	).Scan(&throughID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO conversation_clears (user_id, other_user_id, through_id, cleared_at)
+		VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(user_id, other_user_id) DO UPDATE SET
+			through_id = MAX(conversation_clears.through_id, excluded.through_id),
+			cleared_at = CURRENT_TIMESTAMP
+	`, userID, otherUserID, throughID); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return throughID, nil
 }

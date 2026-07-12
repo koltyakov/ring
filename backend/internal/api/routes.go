@@ -622,22 +622,15 @@ func handleClearMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := db.DeleteMessagesBetween(userID, req.OtherUserID); err != nil {
+	throughID, err := db.ClearMessagesForUser(r.Context(), userID, req.OtherUserID)
+	if err != nil {
 		log.Printf("Failed to clear messages: %v", err)
 		errorResponse(w, http.StatusInternalServerError, "failed to clear messages")
 		return
 	}
 
-	// Notify the other user via WebSocket
-	hub := ws.GetHub()
-	hub.SendMessage(req.OtherUserID, ws.Message{
-		Type:      "clear_messages",
-		From:      userID,
-		Timestamp: time.Now().Unix(),
-	})
-
-	log.Printf("Cleared messages between user %d and %d", userID, req.OtherUserID)
-	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+	log.Printf("Cleared messages for user %d with %d through %d", userID, req.OtherUserID, throughID)
+	jsonResponse(w, http.StatusOK, map[string]interface{}{"status": "ok", "through_id": throughID})
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
