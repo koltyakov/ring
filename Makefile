@@ -1,4 +1,4 @@
-.PHONY: all build frontend backend run clean dev setup
+.PHONY: all build frontend backend run clean dev dev-backend dev-frontend setup check test lint typecheck create-invite bootstrap db-reset help
 
 # Default target
 all: build
@@ -6,9 +6,22 @@ all: build
 # Setup development environment
 setup:
 	@echo "Installing frontend dependencies..."
-	cd frontend && npm install
+	cd frontend && npm ci
 	@echo "Installing backend dependencies..."
-	cd backend && go mod tidy
+	cd backend && go mod download && go mod verify
+
+# Run all required quality checks
+check: lint typecheck test
+
+test:
+	cd backend && go test -race -shuffle=on ./...
+
+lint:
+	cd frontend && npm run lint
+	cd backend && go vet ./...
+
+typecheck:
+	cd frontend && npm run typecheck
 
 # Build frontend
 frontend:
@@ -42,7 +55,6 @@ run: build
 clean:
 	rm -f backend/chatapp
 	rm -rf backend/static/*
-	rm -f backend/*.db
 	rm -rf frontend/node_modules
 	rm -rf frontend/dist
 
@@ -58,7 +70,7 @@ bootstrap:
 
 # Database operations
 db-reset:
-	rm -f backend/chatapp.db
+	rm -f backend/chatapp.db backend/chatapp.db-shm backend/chatapp.db-wal
 	@echo "Database reset. Restart the server to reinitialize."
 
 # Help
@@ -66,6 +78,10 @@ help:
 	@echo "Available targets:"
 	@echo "  setup        - Install all dependencies"
 	@echo "  build        - Build frontend and backend"
+	@echo "  check        - Run lint, typecheck, and tests"
+	@echo "  test         - Run backend tests with the race detector"
+	@echo "  lint         - Run frontend lint and Go vet"
+	@echo "  typecheck    - Type-check the frontend"
 	@echo "  frontend     - Build frontend only"
 	@echo "  backend      - Build backend only"
 	@echo "  dev          - Start development servers (frontend + backend)"

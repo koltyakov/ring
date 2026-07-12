@@ -150,7 +150,7 @@ export async function getOrCreateKeys(): Promise<KeyPair> {
     return { publicKey, privateKey };
   } catch (e) {
     console.error('[Crypto] Key generation failed:', e);
-    throw new Error('Failed to generate encryption keys: ' + (e as Error).message);
+    throw new Error('Failed to generate encryption keys: ' + (e as Error).message, { cause: e });
   }
 }
 
@@ -313,7 +313,7 @@ export async function decryptMessage(
     const decoder = new TextDecoder();
     return decoder.decode(decrypted);
   } catch (e) {
-    throw new Error('Failed to decrypt message: ' + (e as Error).message);
+    throw new Error('Failed to decrypt message: ' + (e as Error).message, { cause: e });
   }
 }
 
@@ -329,7 +329,7 @@ export function base64ToBytes(base64: string): Uint8Array {
   try {
     const binString = atob(cleanBase64);
     return Uint8Array.from(binString, (m) => m.charCodeAt(0));
-  } catch (e) {
+  } catch {
     console.error('Invalid base64:', cleanBase64.substring(0, 50));
     return new Uint8Array();
   }
