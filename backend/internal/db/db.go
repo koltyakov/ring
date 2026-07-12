@@ -27,6 +27,7 @@ type Message struct {
 	Type       string    `json:"type"`    // text, file, call
 	Content    []byte    `json:"content"` // encrypted content
 	Nonce      []byte    `json:"nonce"`
+	ClientID   string    `json:"client_id,omitempty"`
 	Timestamp  time.Time `json:"timestamp"`
 	Read       bool      `json:"read"`
 }
@@ -132,6 +133,13 @@ var migrations = []migration{
 		version: 3,
 		statements: []string{
 			`ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0`,
+		},
+	},
+	{
+		version: 4,
+		statements: []string{
+			`ALTER TABLE messages ADD COLUMN client_id TEXT`,
+			`CREATE UNIQUE INDEX idx_messages_sender_client_id ON messages(sender_id, client_id) WHERE client_id IS NOT NULL`,
 		},
 	},
 }

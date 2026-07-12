@@ -142,6 +142,7 @@ The current key directory is trusted: the server stores mutable public keys and 
 
 - WebSocket auth exchanges the JWT for a 30-second single-use ticket at `/api/ws-ticket`.
 - Call signaling uses WebSocket event types: `call_offer`, `call_answer`, `call_ice`, `call_end`.
+- Message POSTs include a sender-generated `client_id`; retrying the same encrypted payload returns the original message instead of inserting a duplicate.
 - In dev, the frontend relies on the Vite proxy (`/api` -> `http://localhost:8080`) and uses same-origin in production builds.
 
 ## API Endpoints

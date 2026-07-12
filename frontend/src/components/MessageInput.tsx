@@ -12,7 +12,9 @@ export default function MessageInput({ userId }: MessageInputProps) {
   const [error, setError] = useState<string | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingActiveRef = useRef(false);
+  const pendingMessageIdRef = useRef<string | null>(null);
   const sendMessage = useMessagesStore((state) => state.sendMessage);
+  const discardPendingMessage = useMessagesStore((state) => state.discardPendingMessage);
   const sendTyping = useWebSocketStore((state) => state.sendTyping);
 
   const handleTyping = useCallback(() => {
@@ -68,8 +70,11 @@ export default function MessageInput({ userId }: MessageInputProps) {
 
     setIsSending(true);
     setError(null);
+    const clientId = pendingMessageIdRef.current ?? crypto.randomUUID();
+    pendingMessageIdRef.current = clientId;
     try {
-      await sendMessage(userId, message.trim());
+      await sendMessage(userId, message.trim(), clientId);
+      pendingMessageIdRef.current = null;
       setMessage('');
       sendTyping(userId, false);
       typingActiveRef.current = false;
@@ -89,7 +94,8 @@ export default function MessageInput({ userId }: MessageInputProps) {
     if (!message.trim() || isSending) return;
     setIsSending(true);
     try {
-      await sendMessage(userId, message.trim());
+      await sendMessage(userId, message.trim(), pendingMessageIdRef.current ?? undefined);
+      pendingMessageIdRef.current = null;
       setError(null);
       setMessage('');
     } catch (err) {
@@ -118,6 +124,11 @@ export default function MessageInput({ userId }: MessageInputProps) {
           value={message}
           onChange={(e) => {
             setMessage(e.target.value);
+            if (pendingMessageIdRef.current) {
+              discardPendingMessage(pendingMessageIdRef.current);
+            }
+            pendingMessageIdRef.current = null;
+            setError(null);
             handleTyping();
           }}
           placeholder="Message..."

@@ -63,6 +63,7 @@ export interface Message {
   type: 'text' | 'file' | 'call';
   content: string; // base64 encoded encrypted content
   nonce: string; // base64 encoded nonce
+  client_id?: string;
   timestamp: string;
   read: boolean;
 }
@@ -128,10 +129,16 @@ export const api = {
     return fetchWithAuth(`/api/messages/${userId}${query}`);
   },
 
-  sendMessage: (receiverId: number, content: string, nonce: string, type: string = 'text') =>
+  sendMessage: (
+    receiverId: number,
+    clientId: string,
+    content: string,
+    nonce: string,
+    type: string = 'text',
+  ) =>
     fetchWithAuth('/api/messages', {
       method: 'POST',
-      body: JSON.stringify({ receiver_id: receiverId, type, content, nonce }),
+      body: JSON.stringify({ receiver_id: receiverId, client_id: clientId, type, content, nonce }),
     }),
 
   clearMessages: (userId: number) =>

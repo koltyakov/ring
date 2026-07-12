@@ -18,7 +18,8 @@ interface MessagesState {
   activeChatUserId: number | null;
   fetchMessages: (userId: number, beforeId?: number) => Promise<void>;
   loadOlderMessages: (userId: number) => Promise<void>;
-  sendMessage: (receiverId: number, content: string) => Promise<void>;
+  sendMessage: (receiverId: number, content: string, clientId?: string) => Promise<void>;
+  discardPendingMessage: (clientId: string) => void;
   addMessage: (message: Message) => Promise<void>;
   setTyping: (userId: number, typing: boolean) => void;
   markIncomingMessagesAsRead: (userId: number) => void;
@@ -36,6 +37,10 @@ interface MessagesState {
 
 const inFlightMessageFetches = new Map<string, Promise<void>>();
 const typingTimers = new Map<number, ReturnType<typeof setTimeout>>();
+const pendingEncryptedMessages = new Map<
+  string,
+  { receiverId: number; plaintext: string; content: string; nonce: string }
+>();
 let sessionGeneration = 0;
 
 function getCurrentUserId() {
@@ -161,7 +166,8 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     await get().fetchMessages(userId, oldestId);
   },
 
-  sendMessage: async (receiverId: number, content: string) => {
+  sendMessage: async (receiverId: number, content: string, clientId = crypto.randomUUID()) => {
+    const generation = sessionGeneration;
     const user = useUsersStore.getState().getUserById(receiverId);
     if (!user) {
       console.error('[Messages] User not found:', receiverId);
@@ -176,11 +182,26 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
     );
 
     try {
-      const encrypted = await encryptMessage(content, base64ToBytes(user.public_key));
+      let encrypted = pendingEncryptedMessages.get(clientId);
+      if (encrypted && (encrypted.receiverId !== receiverId || encrypted.plaintext !== content)) {
+        throw new Error('Message retry identifier was reused for different content');
+      }
+      if (!encrypted) {
+        const result = await encryptMessage(content, base64ToBytes(user.public_key));
+        encrypted = { receiverId, plaintext: content, ...result };
+        pendingEncryptedMessages.set(clientId, encrypted);
+      }
       console.log('[Messages] Message encrypted successfully');
 
-      const message = await api.sendMessage(receiverId, encrypted.content, encrypted.nonce);
+      const message = await api.sendMessage(
+        receiverId,
+        clientId,
+        encrypted.content,
+        encrypted.nonce,
+      );
       console.log('[Messages] Message sent to server');
+      pendingEncryptedMessages.delete(clientId);
+      if (generation !== sessionGeneration) return;
 
       // Add to local state
       set((state) => {
@@ -200,6 +221,10 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
       console.error('[Messages] Failed to send message:', error);
       throw error;
     }
+  },
+
+  discardPendingMessage: (clientId: string) => {
+    pendingEncryptedMessages.delete(clientId);
   },
 
   addMessage: async (message: Message) => {
@@ -380,6 +405,7 @@ export const useMessagesStore = create<MessagesState>((set, get) => ({
   reset: () => {
     sessionGeneration += 1;
     inFlightMessageFetches.clear();
+    pendingEncryptedMessages.clear();
     for (const timer of typingTimers.values()) clearTimeout(timer);
     typingTimers.clear();
     set({

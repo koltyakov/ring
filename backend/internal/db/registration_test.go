@@ -138,7 +138,7 @@ func TestRegisterUserAllowsOnlyOneConcurrentInviteClaim(t *testing.T) {
 
 func TestForeignKeysAreEnforced(t *testing.T) {
 	initTestDB(t)
-	if _, err := SaveMessage(100, 200, "text", []byte("ciphertext"), make([]byte, 12)); err == nil {
+	if _, _, err := SaveMessage(100, 200, "client-message-id", "text", []byte("ciphertext"), make([]byte, 12)); err == nil {
 		t.Fatal("message with nonexistent users was accepted")
 	}
 }

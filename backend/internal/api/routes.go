@@ -526,6 +526,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 
 	var req struct {
 		ReceiverID int64  `json:"receiver_id"`
+		ClientID   string `json:"client_id"`
 		Type       string `json:"type"`
 		Content    string `json:"content"`
 		Nonce      string `json:"nonce"`
@@ -536,7 +537,7 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ReceiverID == 0 || req.Content == "" || req.Nonce == "" {
+	if req.ReceiverID == 0 || !validClientMessageID(req.ClientID) || req.Content == "" || req.Nonce == "" {
 		errorResponse(w, http.StatusBadRequest, "missing required fields")
 		return
 	}
@@ -564,15 +565,19 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save to database
-	msg, err := db.SaveMessage(senderID, req.ReceiverID, msgType, content, nonce)
+	msg, created, err := db.SaveMessage(senderID, req.ReceiverID, req.ClientID, msgType, content, nonce)
 	if err != nil {
+		if errors.Is(err, db.ErrIdempotencyConflict) {
+			errorResponse(w, http.StatusConflict, err.Error())
+			return
+		}
 		errorResponse(w, http.StatusInternalServerError, "failed to save message")
 		return
 	}
 
 	// Send via WebSocket if user is online
 	hub := ws.GetHub()
-	if hub.IsOnline(req.ReceiverID) {
+	if created && hub.IsOnline(req.ReceiverID) {
 		hub.SendMessage(req.ReceiverID, ws.Message{
 			ID:        msg.ID,
 			Type:      "message",
@@ -585,6 +590,20 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	jsonResponse(w, http.StatusOK, msg)
+}
+
+func validClientMessageID(value string) bool {
+	if len(value) < 16 || len(value) > 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') || char == '-' || char == '_' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func handleClearMessages(w http.ResponseWriter, r *http.Request) {
