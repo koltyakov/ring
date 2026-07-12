@@ -170,7 +170,7 @@ The current key directory is trusted: the server stores mutable public keys and 
 - `VITE_TURN_USERNAME` - TURN username
 - `VITE_TURN_CREDENTIAL` - TURN credential
 
-For production, serve the frontend and API over HTTPS, set a persistent `DB_PATH`, configure a WAL-aware SQLite backup, and provide TURN credentials if calls must work across restrictive networks. `/health` checks database readiness, and the server drains HTTP requests on `SIGTERM` and `SIGINT`.
+For production, serve the frontend and API over HTTPS, set a persistent `DB_PATH`, configure a WAL-aware SQLite backup, and provide TURN credentials if calls must work across restrictive networks. Numbered database migrations run transactionally at startup, so back up the database before deploying a new version. `/health` checks database readiness, and the server drains HTTP requests on `SIGTERM` and `SIGINT`.
 
 ## License
 
