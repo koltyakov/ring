@@ -18,6 +18,7 @@ var errTooManyPendingTickets = errors.New("too many pending WebSocket tickets")
 type webSocketTicket struct {
 	UserID    int64
 	Username  string
+	Version   int64
 	ExpiresAt time.Time
 }
 
@@ -30,7 +31,7 @@ func newWebSocketTicketStore() *webSocketTicketStore {
 	return &webSocketTicketStore{tickets: make(map[string]webSocketTicket)}
 }
 
-func (s *webSocketTicketStore) issue(userID int64, username string, now time.Time) (string, error) {
+func (s *webSocketTicketStore) issue(userID int64, username string, authVersion int64, now time.Time) (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
@@ -46,6 +47,7 @@ func (s *webSocketTicketStore) issue(userID int64, username string, now time.Tim
 	s.tickets[token] = webSocketTicket{
 		UserID:    userID,
 		Username:  username,
+		Version:   authVersion,
 		ExpiresAt: now.Add(webSocketTicketLifetime),
 	}
 	return token, nil

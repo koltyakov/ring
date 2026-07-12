@@ -159,6 +159,9 @@ func TestUpdatePasswordHashRequiresExistingUser(t *testing.T) {
 	if updated.PasswordHash != "new-hash" {
 		t.Fatalf("password hash was not updated: %q", updated.PasswordHash)
 	}
+	if updated.AuthVersion != user.AuthVersion+1 {
+		t.Fatalf("auth version was not incremented: %d", updated.AuthVersion)
+	}
 	if err := UpdatePasswordHash(999, "hash"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("expected sql.ErrNoRows, got %v", err)
 	}

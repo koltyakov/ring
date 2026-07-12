@@ -115,11 +115,18 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			errorResponse(w, http.StatusUnauthorized, "invalid token")
 			return
 		}
+		currentVersion, err := db.GetAuthVersion(claims.UserID)
+		if err != nil || currentVersion != claims.Version {
+			log.Printf("Auth failed: revoked token for user %d", claims.UserID)
+			errorResponse(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
 
 		// Add to context
 		ctx := r.Context()
 		ctx = context.WithValue(ctx, "userID", claims.UserID)
 		ctx = context.WithValue(ctx, "username", claims.Username)
+		ctx = context.WithValue(ctx, "authVersion", claims.Version)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
@@ -132,6 +139,10 @@ func getUserID(r *http.Request) int64 {
 // Get username from context
 func getUsername(r *http.Request) string {
 	return r.Context().Value("username").(string)
+}
+
+func getAuthVersion(r *http.Request) int64 {
+	return r.Context().Value("authVersion").(int64)
 }
 
 // SetupRoutes configures all HTTP routes
@@ -222,7 +233,7 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate token
-	token, err := auth.GenerateToken(user.ID, user.Username)
+	token, err := auth.GenerateToken(user.ID, user.Username, user.AuthVersion)
 	if err != nil {
 		errorResponse(w, http.StatusInternalServerError, "failed to generate token")
 		return
@@ -289,7 +300,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	loginAccountLimiter.reset(accountKey)
 
-	token, err := auth.GenerateToken(user.ID, user.Username)
+	token, err := auth.GenerateToken(user.ID, user.Username, user.AuthVersion)
 	if err != nil {
 		errorResponse(w, http.StatusInternalServerError, "failed to generate token")
 		return
@@ -624,6 +635,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusUnauthorized, "invalid or expired WebSocket ticket")
 		return
 	}
+	currentVersion, err := db.GetAuthVersion(ticket.UserID)
+	if err != nil || currentVersion != ticket.Version {
+		errorResponse(w, http.StatusUnauthorized, "invalid or expired WebSocket ticket")
+		return
+	}
 
 	log.Printf("WebSocket connection attempt from user %d (%s)", ticket.UserID, ticket.Username)
 
@@ -637,11 +653,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	hub := ws.GetHub()
 	client := &ws.Client{
-		Hub:      hub,
-		Conn:     conn,
-		Send:     make(chan []byte, 256),
-		UserID:   ticket.UserID,
-		Username: ticket.Username,
+		Hub:         hub,
+		Conn:        conn,
+		Send:        make(chan []byte, 256),
+		UserID:      ticket.UserID,
+		Username:    ticket.Username,
+		AuthVersion: ticket.Version,
 	}
 
 	hub.Register <- client
@@ -655,7 +672,9 @@ func handleCreateWebSocketTicket(w http.ResponseWriter, r *http.Request) {
 		errorResponse(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	ticket, err := webSocketTickets.issue(getUserID(r), getUsername(r), time.Now())
+	ticket, err := webSocketTickets.issue(
+		getUserID(r), getUsername(r), getAuthVersion(r), time.Now(),
+	)
 	if err != nil {
 		log.Printf("Failed to issue WebSocket ticket: %v", err)
 		errorResponse(w, http.StatusServiceUnavailable, "unable to create WebSocket ticket")

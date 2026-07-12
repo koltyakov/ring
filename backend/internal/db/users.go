@@ -115,9 +115,9 @@ func RegisterUser(ctx context.Context, username, passwordHash string, publicKey 
 
 	var user User
 	if err := tx.QueryRowContext(ctx,
-		"SELECT id, username, public_key, created_at, last_seen FROM users WHERE id = ?",
+		"SELECT id, username, public_key, auth_version, created_at, last_seen FROM users WHERE id = ?",
 		userID,
-	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.CreatedAt, &user.LastSeen); err != nil {
+	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.AuthVersion, &user.CreatedAt, &user.LastSeen); err != nil {
 		return nil, fmt.Errorf("load registered user: %w", err)
 	}
 
@@ -130,9 +130,9 @@ func RegisterUser(ctx context.Context, username, passwordHash string, publicKey 
 func GetUserByID(id int64) (*User, error) {
 	var user User
 	err := DB.QueryRow(
-		"SELECT id, username, public_key, created_at, last_seen FROM users WHERE id = ?",
+		"SELECT id, username, public_key, auth_version, created_at, last_seen FROM users WHERE id = ?",
 		id,
-	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.CreatedAt, &user.LastSeen)
+	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.AuthVersion, &user.CreatedAt, &user.LastSeen)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -147,9 +147,9 @@ func GetUserByID(id int64) (*User, error) {
 func GetUserByUsername(username string) (*User, error) {
 	var user User
 	err := DB.QueryRow(
-		"SELECT id, username, public_key, created_at, last_seen FROM users WHERE username = ?",
+		"SELECT id, username, public_key, auth_version, created_at, last_seen FROM users WHERE username = ?",
 		username,
-	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.CreatedAt, &user.LastSeen)
+	).Scan(&user.ID, &user.Username, &user.PublicKey, &user.AuthVersion, &user.CreatedAt, &user.LastSeen)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -164,9 +164,9 @@ func GetUserByUsername(username string) (*User, error) {
 func GetUserByUsernameWithPassword(username string) (*User, error) {
 	var user User
 	err := DB.QueryRow(
-		"SELECT id, username, password_hash, public_key, created_at, last_seen FROM users WHERE username = ?",
+		"SELECT id, username, password_hash, public_key, auth_version, created_at, last_seen FROM users WHERE username = ?",
 		username,
-	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.PublicKey, &user.CreatedAt, &user.LastSeen)
+	).Scan(&user.ID, &user.Username, &user.PasswordHash, &user.PublicKey, &user.AuthVersion, &user.CreatedAt, &user.LastSeen)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -208,7 +208,10 @@ func UpdatePublicKey(userID int64, publicKey []byte) error {
 }
 
 func UpdatePasswordHash(userID int64, passwordHash string) error {
-	result, err := DB.Exec("UPDATE users SET password_hash = ? WHERE id = ?", passwordHash, userID)
+	result, err := DB.Exec(
+		"UPDATE users SET password_hash = ?, auth_version = auth_version + 1 WHERE id = ?",
+		passwordHash, userID,
+	)
 	if err != nil {
 		return err
 	}
@@ -220,4 +223,10 @@ func UpdatePasswordHash(userID int64, passwordHash string) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+func GetAuthVersion(userID int64) (int64, error) {
+	var version int64
+	err := DB.QueryRow("SELECT auth_version FROM users WHERE id = ?", userID).Scan(&version)
+	return version, err
 }

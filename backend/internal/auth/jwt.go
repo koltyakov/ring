@@ -15,6 +15,7 @@ var jwtSecret []byte
 type Claims struct {
 	UserID   int64  `json:"user_id"`
 	Username string `json:"username"`
+	Version  int64  `json:"auth_version"`
 	jwt.RegisteredClaims
 }
 
@@ -27,7 +28,7 @@ func Configure(secret string) error {
 	return nil
 }
 
-func GenerateToken(userID int64, username string) (string, error) {
+func GenerateToken(userID int64, username string, authVersion int64) (string, error) {
 	if len(jwtSecret) == 0 {
 		return "", errors.New("JWT signing is not configured")
 	}
@@ -35,6 +36,7 @@ func GenerateToken(userID int64, username string) (string, error) {
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
+		Version:  authVersion,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),

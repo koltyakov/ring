@@ -15,6 +15,7 @@ type User struct {
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"` // never expose in JSON
 	PublicKey    []byte    `json:"public_key"`
+	AuthVersion  int64     `json:"-"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastSeen     time.Time `json:"last_seen"`
 }
@@ -125,6 +126,12 @@ var migrations = []migration{
 			`CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver_id ON messages(sender_id, receiver_id, id DESC)`,
 			`CREATE INDEX IF NOT EXISTS idx_messages_receiver_sender_id ON messages(receiver_id, sender_id, id DESC)`,
 			`CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages(receiver_id, read, id)`,
+		},
+	},
+	{
+		version: 3,
+		statements: []string{
+			`ALTER TABLE users ADD COLUMN auth_version INTEGER NOT NULL DEFAULT 0`,
 		},
 	},
 }

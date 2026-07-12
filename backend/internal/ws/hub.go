@@ -39,11 +39,12 @@ type Hub struct {
 }
 
 type Client struct {
-	Hub      *Hub
-	Conn     *websocket.Conn
-	Send     chan []byte
-	UserID   int64
-	Username string
+	Hub         *Hub
+	Conn        *websocket.Conn
+	Send        chan []byte
+	UserID      int64
+	Username    string
+	AuthVersion int64
 }
 
 type WSMessage struct {
@@ -223,6 +224,9 @@ func (c *Client) ReadPump() {
 			}
 			break
 		}
+		if !c.isAuthorized() {
+			break
+		}
 
 		var wsMsg WSMessage
 		if err := json.Unmarshal(message, &wsMsg); err != nil {
@@ -253,11 +257,20 @@ func (c *Client) WritePump() {
 
 		case <-ticker.C:
 			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if !c.isAuthorized() {
+				_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session revoked"))
+				return
+			}
 			if err := c.Conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
 		}
 	}
+}
+
+func (c *Client) isAuthorized() bool {
+	version, err := db.GetAuthVersion(c.UserID)
+	return err == nil && version == c.AuthVersion
 }
 
 func (c *Client) handleMessage(msg *WSMessage) {

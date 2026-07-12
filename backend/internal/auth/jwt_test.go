@@ -12,7 +12,7 @@ func TestConfigureRejectsWeakSecret(t *testing.T) {
 	if err := Configure("too-short"); err == nil {
 		t.Fatal("Configure accepted a weak secret")
 	}
-	if _, err := GenerateToken(1, "alice"); err == nil {
+	if _, err := GenerateToken(1, "alice", 0); err == nil {
 		t.Fatal("GenerateToken succeeded without valid configuration")
 	}
 }
@@ -22,7 +22,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	token, err := GenerateToken(42, "alice")
+	token, err := GenerateToken(42, "alice", 3)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestGenerateAndValidateToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims.UserID != 42 || claims.Username != "alice" {
+	if claims.UserID != 42 || claims.Username != "alice" || claims.Version != 3 {
 		t.Fatalf("unexpected claims: %+v", claims)
 	}
 }

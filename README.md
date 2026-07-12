@@ -108,6 +108,8 @@ To reset an existing account password without putting it in shell history or pro
 make reset-password USER=alice
 ```
 
+Resetting a password increments the account authentication version, invalidating previously issued JWTs and WebSocket tickets. Active WebSocket sessions close on their next frame or heartbeat.
+
 ## Architecture
 
 ### E2E Encryption
