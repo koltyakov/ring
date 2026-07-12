@@ -173,8 +173,8 @@ func (h *Hub) SendMessage(to int64, msg Message) {
 	data := h.serializeMessage(msg)
 
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	client, ok := h.Clients[to]
-	h.mu.RUnlock()
 	if ok {
 		select {
 		case client.Send <- data:

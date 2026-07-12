@@ -2,6 +2,7 @@ package main
 
 import (
 	"chatapp/internal/api"
+	"chatapp/internal/auth"
 	"chatapp/internal/db"
 	"encoding/json"
 	"log"
@@ -11,6 +12,10 @@ import (
 )
 
 func main() {
+	if err := auth.Configure(os.Getenv("JWT_SECRET")); err != nil {
+		log.Fatal(err)
+	}
+
 	// Initialize database
 	database, err := db.InitDB("chatapp.db")
 	if err != nil {

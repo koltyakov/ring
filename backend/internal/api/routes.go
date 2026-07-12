@@ -7,6 +7,7 @@ import (
 	"chatapp/internal/ws"
 	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -137,25 +138,6 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if this is the first user (bootstrap mode)
-	var userCount int
-	if err := db.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount); err != nil {
-		errorResponse(w, http.StatusInternalServerError, "database error")
-		return
-	}
-
-	// Require invite code only if users already exist
-	if userCount > 0 {
-		if req.InviteCode == "" {
-			errorResponse(w, http.StatusBadRequest, "invite code required")
-			return
-		}
-		if err := db.ValidateInvite(req.InviteCode); err != nil {
-			errorResponse(w, http.StatusBadRequest, "invalid or used invite code")
-			return
-		}
-	}
-
 	// Decode public key
 	pubKey, err := crypto.DecodeKey(req.PublicKey)
 	if err != nil {
@@ -170,16 +152,17 @@ func handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create user
-	user, err := db.CreateUser(req.Username, passwordHash, pubKey)
+	// User creation and invite consumption must commit together.
+	user, err := db.RegisterUser(r.Context(), req.Username, passwordHash, pubKey, req.InviteCode)
 	if err != nil {
-		errorResponse(w, http.StatusBadRequest, "username already exists")
+		switch {
+		case errors.Is(err, db.ErrInviteRequired), errors.Is(err, db.ErrInvalidInvite), errors.Is(err, db.ErrUsernameExists):
+			errorResponse(w, http.StatusBadRequest, err.Error())
+		default:
+			log.Printf("Failed to register user: %v", err)
+			errorResponse(w, http.StatusInternalServerError, "failed to create user")
+		}
 		return
-	}
-
-	// Use the invite code if provided
-	if req.InviteCode != "" {
-		db.ValidateAndUseInvite(req.InviteCode, user.ID)
 	}
 
 	// Generate token

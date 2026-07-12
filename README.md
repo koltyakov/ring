@@ -50,7 +50,13 @@ cd chatapp
 make setup
 ```
 
-3. Start development servers:
+3. Configure a JWT signing secret:
+
+```bash
+export JWT_SECRET="$(openssl rand -hex 32)"
+```
+
+4. Start development servers:
 
 ```bash
 make dev
@@ -151,7 +157,7 @@ make create-invite
 **Backend:**
 
 - `PORT` - Server port (default: 8080)
-- `JWT_SECRET` - Secret for JWT signing
+- `JWT_SECRET` - Required JWT signing secret (at least 32 characters)
 - `DEBUG` - Enable debug mode
 
 **Frontend:**

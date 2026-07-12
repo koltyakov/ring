@@ -2,13 +2,15 @@ package auth
 
 import (
 	"errors"
-	"os"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var jwtSecret = []byte(getSecret())
+const minimumSecretLength = 32
+
+var jwtSecret []byte
 
 type Claims struct {
 	UserID   int64  `json:"user_id"`
@@ -16,15 +18,20 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-func getSecret() string {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "your-secret-key-change-in-production"
+func Configure(secret string) error {
+	jwtSecret = nil
+	if len(secret) < minimumSecretLength {
+		return fmt.Errorf("JWT_SECRET must be at least %d characters", minimumSecretLength)
 	}
-	return secret
+	jwtSecret = []byte(secret)
+	return nil
 }
 
 func GenerateToken(userID int64, username string) (string, error) {
+	if len(jwtSecret) == 0 {
+		return "", errors.New("JWT signing is not configured")
+	}
+
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
@@ -39,9 +46,13 @@ func GenerateToken(userID int64, username string) (string, error) {
 }
 
 func ValidateToken(tokenString string) (*Claims, error) {
+	if len(jwtSecret) == 0 {
+		return nil, errors.New("JWT validation is not configured")
+	}
+
 	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
 		return jwtSecret, nil
-	})
+	}, jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}))
 
 	if err != nil {
 		return nil, err
