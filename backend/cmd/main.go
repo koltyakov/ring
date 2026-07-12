@@ -4,6 +4,7 @@ import (
 	"chatapp/internal/api"
 	"chatapp/internal/auth"
 	"chatapp/internal/db"
+	"chatapp/internal/ws"
 	"context"
 	"encoding/json"
 	"errors"
@@ -97,6 +98,7 @@ func main() {
 			log.Fatal("Server failed:", err)
 		}
 	case <-ctx.Done():
+		ws.GetHub().Shutdown()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {

@@ -32,9 +32,12 @@ func GetHub() *Hub {
 }
 
 type Hub struct {
-	Clients    map[int64]*Client // userID -> client
+	Clients    map[int64]map[*Client]struct{} // userID -> active sessions
 	Register   chan *Client
 	unregister chan *Client
+	stop       chan struct{}
+	done       chan struct{}
+	stopOnce   sync.Once
 	mu         sync.RWMutex
 }
 
@@ -72,9 +75,11 @@ type Presence struct {
 
 func NewHub() *Hub {
 	return &Hub{
-		Clients:    make(map[int64]*Client),
+		Clients:    make(map[int64]map[*Client]struct{}),
 		Register:   make(chan *Client),
 		unregister: make(chan *Client),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
 	}
 }
 
@@ -83,25 +88,26 @@ func (h *Hub) Run() {
 }
 
 func (h *Hub) handleEvents() {
+	defer close(h.done)
 	for {
 		select {
 		case client := <-h.Register:
 			h.mu.Lock()
-			// Close existing connection for this user if any (e.g. from reconnect)
-			if existing, ok := h.Clients[client.UserID]; ok {
-				log.Printf("Closing stale connection for user %d", client.UserID)
-				delete(h.Clients, client.UserID)
-				close(existing.Send)
-			}
+			wasOffline := len(h.Clients[client.UserID]) == 0
 			// Send current online users to the new client
-			for id, c := range h.Clients {
+			for id, sessions := range h.Clients {
 				if id != client.UserID {
+					var username string
+					for session := range sessions {
+						username = session.Username
+						break
+					}
 					msg := Message{
 						Type: "presence",
 						Data: func() []byte {
 							p := Presence{
-								UserID:   c.UserID,
-								Username: c.Username,
+								UserID:   id,
+								Username: username,
 								Online:   true,
 							}
 							b, _ := json.Marshal(p)
@@ -115,25 +121,73 @@ func (h *Hub) handleEvents() {
 					}
 				}
 			}
-			h.Clients[client.UserID] = client
+			if h.Clients[client.UserID] == nil {
+				h.Clients[client.UserID] = make(map[*Client]struct{})
+			}
+			h.Clients[client.UserID][client] = struct{}{}
 			h.mu.Unlock()
-			h.notifyPresence(client.UserID, client.Username, true)
-			db.UpdateLastSeen(client.UserID)
+			if wasOffline {
+				h.notifyPresence(client.UserID, client.Username, true)
+			}
 
 		case client := <-h.unregister:
 			h.mu.Lock()
-			// Only remove and notify offline if this is still the active client
-			// (prevents a stale connection from marking the user offline after reconnect)
-			if existing, ok := h.Clients[client.UserID]; ok && existing == client {
-				delete(h.Clients, client.UserID)
+			sessions := h.Clients[client.UserID]
+			_, registered := sessions[client]
+			if registered {
+				delete(sessions, client)
 				close(client.Send)
-				h.mu.Unlock()
-				h.notifyPresence(client.UserID, client.Username, false)
-			} else {
-				h.mu.Unlock()
 			}
+			wentOffline := registered && len(sessions) == 0
+			if wentOffline {
+				delete(h.Clients, client.UserID)
+			}
+			h.mu.Unlock()
+			if wentOffline {
+				if err := db.UpdateLastSeen(client.UserID); err != nil {
+					log.Printf("Failed to update last seen for user %d: %v", client.UserID, err)
+				}
+				h.notifyPresence(client.UserID, client.Username, false)
+			}
+
+		case <-h.stop:
+			h.mu.Lock()
+			for _, sessions := range h.Clients {
+				for client := range sessions {
+					close(client.Send)
+					if client.Conn != nil {
+						_ = client.Conn.WriteControl(
+							websocket.CloseMessage,
+							websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down"),
+							time.Now().Add(writeWait),
+						)
+						_ = client.Conn.Close()
+					}
+				}
+			}
+			h.Clients = make(map[int64]map[*Client]struct{})
+			h.mu.Unlock()
+			return
 		}
 	}
+}
+
+func (h *Hub) RegisterClient(client *Client) bool {
+	select {
+	case h.Register <- client:
+		return true
+	case <-h.done:
+		return false
+	}
+}
+
+func (h *Hub) Shutdown() {
+	h.stopOnce.Do(func() { close(h.stop) })
+	<-h.done
+}
+
+func (h *Hub) Done() <-chan struct{} {
+	return h.done
 }
 
 func (h *Hub) serializeMessage(msg Message) []byte {
@@ -161,10 +215,15 @@ func (h *Hub) notifyPresence(userID int64, username string, online bool) {
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	for _, client := range h.Clients {
-		select {
-		case client.Send <- data:
-		default:
+	for id, sessions := range h.Clients {
+		if id == userID {
+			continue
+		}
+		for client := range sessions {
+			select {
+			case client.Send <- data:
+			default:
+			}
 		}
 	}
 }
@@ -176,8 +235,7 @@ func (h *Hub) SendMessage(to int64, msg Message) {
 
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	client, ok := h.Clients[to]
-	if ok {
+	for client := range h.Clients[to] {
 		select {
 		case client.Send <- data:
 		default:
@@ -189,8 +247,7 @@ func (h *Hub) SendMessage(to int64, msg Message) {
 func (h *Hub) IsOnline(userID int64) bool {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	_, ok := h.Clients[userID]
-	return ok
+	return len(h.Clients[userID]) > 0
 }
 
 func (h *Hub) GetOnlineUsers() []int64 {
@@ -205,7 +262,10 @@ func (h *Hub) GetOnlineUsers() []int64 {
 
 func (c *Client) ReadPump() {
 	defer func() {
-		c.Hub.unregister <- c
+		select {
+		case c.Hub.unregister <- c:
+		case <-c.Hub.Done():
+		}
 		c.Conn.Close()
 	}()
 
@@ -247,16 +307,22 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case message, ok := <-c.Send:
-			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return
+			}
 			if !ok {
-				c.Conn.WriteMessage(websocket.CloseMessage, []byte{})
+				_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down"))
 				return
 			}
 
-			c.Conn.WriteMessage(websocket.TextMessage, message)
+			if err := c.Conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				return
+			}
 
 		case <-ticker.C:
-			c.Conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.Conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				return
+			}
 			if !c.isAuthorized() {
 				_ = c.Conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.ClosePolicyViolation, "session revoked"))
 				return

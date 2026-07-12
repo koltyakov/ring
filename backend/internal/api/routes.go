@@ -673,7 +673,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		AuthVersion: ticket.Version,
 	}
 
-	hub.Register <- client
+	if !hub.RegisterClient(client) {
+		_ = conn.Close()
+		return
+	}
 
 	go client.WritePump()
 	go client.ReadPump()
