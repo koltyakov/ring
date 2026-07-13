@@ -6,10 +6,12 @@ import (
 	"chatapp/internal/db"
 	"chatapp/internal/ws"
 	"context"
+	"crypto/elliptic"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,6 +50,10 @@ func errorResponse(w http.ResponseWriter, status int, message string) {
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, destination interface{}, limit int64) error {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return errors.New("content type must be application/json")
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
@@ -64,7 +70,14 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, destination interface{},
 }
 
 func validPublicKey(key []byte) bool {
-	return len(key) == 32 || len(key) == 65
+	if len(key) == 32 {
+		return true
+	}
+	if len(key) != 65 {
+		return false
+	}
+	x, y := elliptic.Unmarshal(elliptic.P256(), key)
+	return x != nil && y != nil
 }
 
 func spaFileHandler(staticDir string) http.Handler {
@@ -372,7 +385,12 @@ func handleGetMe(w http.ResponseWriter, r *http.Request) {
 
 	userID := getUserID(r)
 	user, err := db.GetUserByID(userID)
-	if err != nil || user == nil {
+	if err != nil {
+		log.Printf("Failed to fetch current user %d: %v", userID, err)
+		errorResponse(w, http.StatusInternalServerError, "failed to fetch user")
+		return
+	}
+	if user == nil {
 		errorResponse(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -438,16 +456,23 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	userID := getUserID(r)
 
-	// Extract userID from path /api/messages/{userID}
 	path := strings.TrimPrefix(r.URL.Path, "/api/messages/")
-	parts := strings.Split(path, "/")
-	if len(parts) < 1 || parts[0] == "" {
+	if path == "" || strings.Contains(path, "/") {
 		errorResponse(w, http.StatusBadRequest, "invalid user ID")
 		return
 	}
-
-	var otherID int64
-	if err := db.DB.QueryRow("SELECT id FROM users WHERE id = ?", parts[0]).Scan(&otherID); err != nil {
+	otherID, err := strconv.ParseInt(path, 10, 64)
+	if err != nil || otherID < 1 {
+		errorResponse(w, http.StatusBadRequest, "invalid user ID")
+		return
+	}
+	otherUser, err := db.GetUserByID(otherID)
+	if err != nil {
+		log.Printf("Failed to fetch conversation user %d: %v", otherID, err)
+		errorResponse(w, http.StatusInternalServerError, "failed to fetch user")
+		return
+	}
+	if otherUser == nil {
 		errorResponse(w, http.StatusNotFound, "user not found")
 		return
 	}
@@ -472,10 +497,14 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 		beforeID = parsed
 	}
 
-	messages, err := db.GetMessagesBetween(userID, otherID, limit, beforeID)
+	messages, err := db.GetMessagesBetween(userID, otherID, limit+1, beforeID)
 	if err != nil {
 		errorResponse(w, http.StatusInternalServerError, "failed to fetch messages")
 		return
+	}
+	hasMore := len(messages) > limit
+	if hasMore {
+		messages = messages[:limit]
 	}
 
 	var minReadID, maxReadID int64
@@ -494,7 +523,12 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	// Only mark incoming messages from the returned page as read.
 	if maxReadID > 0 {
 		updated, err := db.MarkMessagesAsReadRange(otherID, userID, minReadID, maxReadID)
-		if err == nil && updated > 0 && ws.GetHub().IsOnline(otherID) {
+		if err != nil {
+			log.Printf("Failed to mark messages as read: %v", err)
+			errorResponse(w, http.StatusInternalServerError, "failed to update messages")
+			return
+		}
+		if updated > 0 && ws.GetHub().IsOnline(otherID) {
 			// Send read receipt via WebSocket
 			readReceiptData, _ := json.Marshal(map[string]int64{
 				"from_id":    minReadID,
@@ -511,7 +545,7 @@ func handleGetMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var nextCursor *int64
-	if len(messages) == limit {
+	if hasMore {
 		cursor := messages[len(messages)-1].ID
 		nextCursor = &cursor
 	}
@@ -537,8 +571,22 @@ func handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.ReceiverID == 0 || !validClientMessageID(req.ClientID) || req.Content == "" || req.Nonce == "" {
+	if req.ReceiverID < 1 || !validClientMessageID(req.ClientID) || req.Content == "" || req.Nonce == "" {
 		errorResponse(w, http.StatusBadRequest, "missing required fields")
+		return
+	}
+	if req.ReceiverID == senderID {
+		errorResponse(w, http.StatusBadRequest, "cannot message yourself")
+		return
+	}
+	receiver, err := db.GetUserByID(req.ReceiverID)
+	if err != nil {
+		log.Printf("Failed to fetch message recipient %d: %v", req.ReceiverID, err)
+		errorResponse(w, http.StatusInternalServerError, "failed to fetch recipient")
+		return
+	}
+	if receiver == nil {
+		errorResponse(w, http.StatusNotFound, "recipient not found")
 		return
 	}
 
@@ -619,6 +667,20 @@ func handleClearMessages(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(w, r, &req, standardRequestLimit); err != nil {
 		errorResponse(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	if req.OtherUserID < 1 || req.OtherUserID == userID {
+		errorResponse(w, http.StatusBadRequest, "invalid user ID")
+		return
+	}
+	otherUser, err := db.GetUserByID(req.OtherUserID)
+	if err != nil {
+		log.Printf("Failed to fetch clear target %d: %v", req.OtherUserID, err)
+		errorResponse(w, http.StatusInternalServerError, "failed to fetch user")
+		return
+	}
+	if otherUser == nil {
+		errorResponse(w, http.StatusNotFound, "user not found")
 		return
 	}
 
